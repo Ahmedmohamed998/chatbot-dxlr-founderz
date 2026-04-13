@@ -57,7 +57,7 @@ sudo systemctl restart nginx
 ### 4. Build and Run!
 Execute Docker Compose to bring the entire stack online:
 ```bash
-sudo docker-compose up --build -d
+sudo docker compose up --build -d
 ```
 Your vector database, backend API, and React frontend are now online.
 
