@@ -1,0 +1,107 @@
+{
+  "summary": {
+    "total_tests": 16,
+    "passed": 16,
+    "failed": 0,
+    "success_rate": 100.0
+  },
+  "results": [
+    {
+      "test": "Health Check",
+      "success": true,
+      "details": "Status: 200 (expected 200)",
+      "timestamp": "2026-04-12T13:58:38.909664"
+    },
+    {
+      "test": "Invalid Login",
+      "success": true,
+      "details": "Status: 401 (expected 401)",
+      "timestamp": "2026-04-12T13:58:39.048092"
+    },
+    {
+      "test": "Admin Login",
+      "success": true,
+      "details": "Status: 200 (expected 200)",
+      "timestamp": "2026-04-12T13:58:39.407459"
+    },
+    {
+      "test": "Token Storage",
+      "success": true,
+      "details": "Token received and stored",
+      "timestamp": "2026-04-12T13:58:39.408063"
+    },
+    {
+      "test": "Get User Info",
+      "success": true,
+      "details": "Status: 200 (expected 200)",
+      "timestamp": "2026-04-12T13:58:39.510333"
+    },
+    {
+      "test": "Unauthorized Access",
+      "success": true,
+      "details": "Status: 401 (expected 401)",
+      "timestamp": "2026-04-12T13:58:39.651932"
+    },
+    {
+      "test": "Get Chats",
+      "success": true,
+      "details": "Status: 200 (expected 200)",
+      "timestamp": "2026-04-12T13:58:39.761524"
+    },
+    {
+      "test": "Send Message (Create Chat)",
+      "success": true,
+      "details": "Status: 200 (expected 200)",
+      "timestamp": "2026-04-12T13:58:39.873149"
+    },
+    {
+      "test": "Get Chat Messages",
+      "success": true,
+      "details": "Status: 200 (expected 200)",
+      "timestamp": "2026-04-12T13:58:39.989990"
+    },
+    {
+      "test": "Toggle AI (Pause)",
+      "success": true,
+      "details": "Status: 200 (expected 200)",
+      "timestamp": "2026-04-12T13:58:40.099645"
+    },
+    {
+      "test": "Toggle AI (Resume)",
+      "success": true,
+      "details": "Status: 200 (expected 200)",
+      "timestamp": "2026-04-12T13:58:40.215786"
+    },
+    {
+      "test": "Get Templates",
+      "success": true,
+      "details": "Status: 200 (expected 200)",
+      "timestamp": "2026-04-12T13:58:40.319532"
+    },
+    {
+      "test": "Send Campaign",
+      "success": true,
+      "details": "Status: 404 (expected 404)",
+      "timestamp": "2026-04-12T13:58:40.430205"
+    },
+    {
+      "test": "Webhook Verification",
+      "success": true,
+      "details": "Status: 200 (expected 200)",
+      "timestamp": "2026-04-12T13:58:40.585062"
+    },
+    {
+      "test": "AI Knowledge Ingest",
+      "success": true,
+      "details": "Status: 200 (expected 200)",
+      "timestamp": "2026-04-12T13:58:40.721528"
+    },
+    {
+      "test": "AI Chat Response",
+      "success": true,
+      "details": "Status: 200 (expected 200)",
+      "timestamp": "2026-04-12T13:58:43.309962"
+    }
+  ],
+  "timestamp": "2026-04-12T13:58:43.310839"
+}

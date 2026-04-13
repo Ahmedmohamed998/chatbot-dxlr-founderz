@@ -1,0 +1,46 @@
+{
+  "summary": {
+    "total_tests": 6,
+    "passed": 6,
+    "failed": 0
+  },
+  "results": [
+    {
+      "test": "Login for WebSocket Test",
+      "success": true,
+      "details": "Token obtained",
+      "timestamp": "2026-04-12T13:59:23.817234"
+    },
+    {
+      "test": "WebSocket Connection",
+      "success": true,
+      "details": "Successfully connected",
+      "timestamp": "2026-04-12T13:59:23.967608"
+    },
+    {
+      "test": "WebSocket Ping/Pong",
+      "success": true,
+      "details": "Heartbeat working",
+      "timestamp": "2026-04-12T13:59:23.994378"
+    },
+    {
+      "test": "WebSocket Connection for Broadcast Test",
+      "success": true,
+      "details": "Connected",
+      "timestamp": "2026-04-12T13:59:24.189129"
+    },
+    {
+      "test": "API Message Send",
+      "success": true,
+      "details": "Message sent via API",
+      "timestamp": "2026-04-12T13:59:24.305653"
+    },
+    {
+      "test": "WebSocket Message Broadcast",
+      "success": true,
+      "details": "Received correct broadcast message",
+      "timestamp": "2026-04-12T13:59:24.310662"
+    }
+  ],
+  "timestamp": "2026-04-12T13:59:24.357321"
+}

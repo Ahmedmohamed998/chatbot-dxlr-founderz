@@ -1,0 +1,99 @@
+{
+  "theme_and_archetype": {
+    "theme": "dark",
+    "archetype": "Archetype 4: Swiss & High-Contrast (Adapted for Dark Mode)",
+    "description": "A high-end, brutalist-inspired dark tech aesthetic. Uses obsidian blacks, stark white typography, and vibrant but deeply saturated neon accents (Emerald & Cyan) to denote AI and communication. No soft dropshadows—only crisp 1px borders, architectural spacing, and targeted light bleeds."
+  },
+  "typography": {
+    "fonts": {
+      "headings": "'Cabinet Grotesk', sans-serif",
+      "body": "'Manrope', sans-serif",
+      "mono": "'JetBrains Mono', monospace"
+    },
+    "font_urls": [
+      "https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap",
+      "https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,500,700,400,900&display=swap"
+    ],
+    "scale": {
+      "h1": "text-4xl sm:text-5xl tracking-tighter font-black",
+      "h2": "text-2xl sm:text-3xl tracking-tight font-bold",
+      "h3": "text-xl font-semibold",
+      "body": "text-base font-normal",
+      "small": "text-sm text-zinc-400",
+      "overline": "text-xs font-bold tracking-[0.2em] uppercase text-zinc-500"
+    }
+  },
+  "color_palette": {
+    "background": {
+      "primary": "#0A0A0A",
+      "sidebar": "#050505",
+      "panel": "#111111",
+      "glass": "bg-black/60 backdrop-blur-xl"
+    },
+    "border": {
+      "default": "border-white/5",
+      "hover": "border-white/20",
+      "focus": "border-emerald-500/50"
+    },
+    "text": {
+      "primary": "#FAFAFA",
+      "secondary": "#A1A1AA",
+      "muted": "#52525B"
+    },
+    "accents": {
+      "primary": "#00E599",
+      "bot": "#00D4FF",
+      "admin": "#FAFAFA"
+    },
+    "chat_bubbles": {
+      "customer": {
+        "classes": "bg-[#132A20] border-[#184530] text-[#A6E3C6]",
+        "alignment": "self-start",
+        "description": "Green theme for customer messages"
+      },
+      "bot": {
+        "classes": "bg-[#0B1E3B] border-[#133463] text-[#A6C8FF]",
+        "alignment": "self-end",
+        "description": "Blue theme for AI bot messages"
+      },
+      "admin": {
+        "classes": "bg-[#1A1A1A] border-[#333333] text-[#E0E0E0]",
+        "alignment": "self-end",
+        "description": "Gray theme for manual admin messages"
+      }
+    }
+  },
+  "spacing_and_layout": {
+    "sidebar": "w-[260px] fixed left-0 top-0 h-screen border-r border-white/5 bg-[#050505]",
+    "main_content": "ml-[260px] min-h-screen bg-[#0A0A0A]",
+    "inbox_grid": "grid grid-cols-[350px_1fr] h-[calc(100vh-64px)]",
+    "templates_grid": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6",
+    "generous_padding": "p-6 md:p-8"
+  },
+  "surface_strategies": {
+    "dashboard_cards": "Flat background (bg-[#111] or bg-[#0A0A0A]), crisp 1px border (border-white/5), rounded-md. Hover state: border-white/20 with subtle -translate-y-[1px] transition.",
+    "glass_header": "bg-black/60 backdrop-blur-xl border-b border-white/5 sticky top-0 z-50",
+    "ai_toggle": "Use 'The Tracing Beam' or Neumorphic inset dark approach. Example: bg-[#111] border-white/10 rounded-full p-1. Active state glows with cyan/emerald.",
+    "buttons": "Sharp corners or rounded-sm. Primary: bg-emerald-500 text-black hover:bg-emerald-400 font-semibold. Use pure white text on dark gray for secondary actions."
+  },
+  "components_instructions": {
+    "login_page": "Use the provided 3D abstract background image in a split-screen or full-screen under a glassmorphism card. Keep the form brutalist: transparent inputs with bottom borders or solid 1px borders. Add 'Welcome back, Operator' or similar technical copy.",
+    "sidebar_nav": "Dark #050505 bg. Links should have hover states (bg-white/5 text-white). Active state: subtle left border highlight (border-l-2 border-emerald-500) or pure text highlight.",
+    "inbox_panel_left": "Contact list. Each item should have a hover effect. Show unread indicators in electric emerald or cyan.",
+    "inbox_panel_right": "Message history. Sticky top header with contact name and AI Toggle. Scrollable message area. Sticky bottom input with absolute positioned send icon.",
+    "message_bubbles": "Follow color rules. Max-width 75%. Customer left, Bot/Admin right. Use flex flex-col gap-4. Add 1px solid borders to bubbles to ground them.",
+    "templates_cards": "Use 'Grid Borders' look. Show template name, language, preview text, and status badge. Keep background flat and tech-focused.",
+    "campaign_form": "Shadcn-based form with select for template, textarea for phone numbers. Crisp inputs, high contrast focus states (focus:ring-1 focus:ring-emerald-500)."
+  },
+  "media_assets": {
+    "images": {
+      "login_bg": {
+        "url": "https://static.prod-images.emergentagent.com/jobs/7d7e878c-a0a3-42af-922c-67ade2252a16/images/e3468a1f5330336964fe5bed4c578211a031df64c6eddeb6a4e594fedf5353a2.png",
+        "category": "background",
+        "description": "Abstract 3D glassmorphism dark mode background with emerald and cyan edges. Use as the background or side panel for the login page."
+      }
+    },
+    "icons": "Use 'lucide-react'. Import Bot, Sparkles, MessageSquare, LayoutGrid, Megaphone, LogOut, Send."
+  },
+  "testing_requirements": "All interactive elements must have data-testid. E.g., data-testid='login-submit-button', data-testid='ai-toggle-switch', data-testid='contact-item', data-testid='campaign-submit'."
+}
