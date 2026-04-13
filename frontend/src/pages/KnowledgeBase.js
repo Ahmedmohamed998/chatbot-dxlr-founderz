@@ -16,7 +16,8 @@ const KnowledgeBase = () => {
 
     setIsSubmitting(true);
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8001/api';
+    const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001';
+    const apiUrl = `${BACKEND_URL}/api`;
       const token = localStorage.getItem('token');
       
       const response = await fetch(`${apiUrl}/ai/ingest`, {

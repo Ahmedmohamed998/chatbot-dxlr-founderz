@@ -48,7 +48,7 @@ services:
     ports:
       - "3080:3000"
     environment:
-      - REACT_APP_API_URL=http://localhost:8001/api
+      - REACT_APP_BACKEND_URL=${REACT_APP_BACKEND_URL:-http://localhost:8001}
     depends_on:
       - backend
 

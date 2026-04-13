@@ -108,6 +108,7 @@ const Inbox = () => {
       };
       
       ws.onmessage = (event) => {
+        if (event.data === 'pong') return;
         try {
           const data = JSON.parse(event.data);
           console.log('WebSocket message received:', data);
