@@ -46,7 +46,7 @@ services:
     container_name: whatsapp_frontend
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3080:3000"
     environment:
       - REACT_APP_API_URL=http://localhost:8001/api
     depends_on:
