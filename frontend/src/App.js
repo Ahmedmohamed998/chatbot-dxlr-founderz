@@ -7,6 +7,8 @@ import Inbox from './pages/Inbox';
 import Templates from './pages/Templates';
 import Campaigns from './pages/Campaigns';
 import KnowledgeBase from './pages/KnowledgeBase';
+import Settings from './pages/Settings';
+import AdminUsers from './pages/AdminUsers';
 import ToastContainer from './components/ToastContainer';
 import './App.css';
 
@@ -24,6 +26,8 @@ function App() {
                 <Route path="templates" element={<Templates />} />
                 <Route path="campaigns" element={<Campaigns />} />
                 <Route path="knowledge" element={<KnowledgeBase />} />
+                <Route path="settings" element={<Settings />} />
+                <Route path="admin" element={<AdminUsers />} />
               </Route>
               <Route path="/" element={<Navigate to="/login" replace />} />
               <Route path="*" element={<Navigate to="/login" replace />} />

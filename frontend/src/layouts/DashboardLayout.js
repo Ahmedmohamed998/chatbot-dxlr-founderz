@@ -1,7 +1,7 @@
 import React from 'react';
 import { NavLink, Outlet, useNavigate, Navigate } from 'react-router-dom';
 import { useAuth, useToast } from '../contexts/AppContext';
-import { Bot, MessageSquare, LayoutGrid, Megaphone, LogOut, Sparkles, BookOpen } from 'lucide-react';
+import { Bot, MessageSquare, LayoutGrid, Megaphone, LogOut, Sparkles, BookOpen, Users, Settings } from 'lucide-react';
 
 const DashboardLayout = () => {
   const { user, logout, loading } = useAuth();
@@ -19,9 +19,7 @@ const DashboardLayout = () => {
     );
   }
 
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
+  if (!user) return <Navigate to="/login" replace />;
 
   const handleLogout = () => {
     logout();
@@ -34,11 +32,15 @@ const DashboardLayout = () => {
     { path: '/dashboard/templates', icon: LayoutGrid, label: 'Templates' },
     { path: '/dashboard/campaigns', icon: Megaphone, label: 'Campaigns' },
     { path: '/dashboard/knowledge', icon: BookOpen, label: 'Knowledge Base' },
+    { path: '/dashboard/settings', icon: Settings, label: 'Settings' },
+  ];
+
+  const adminItems = [
+    { path: '/dashboard/admin', icon: Users, label: 'User Management' },
   ];
 
   return (
     <div className="min-h-screen bg-[#0A0A0A]" data-testid="dashboard-layout">
-      {/* Sidebar */}
       <aside className="fixed left-0 top-0 h-screen w-[260px] bg-[#050505] border-r border-white/5 flex flex-col">
         {/* Logo */}
         <div className="h-16 flex items-center gap-3 px-6 border-b border-white/5">
@@ -51,16 +53,14 @@ const DashboardLayout = () => {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 py-6 px-3">
-          <p className="text-xs font-bold tracking-[0.2em] uppercase text-zinc-600 px-3 mb-4">
-            Navigation
-          </p>
+        <nav className="flex-1 py-6 px-3 overflow-y-auto">
+          <p className="text-xs font-bold tracking-[0.2em] uppercase text-zinc-600 px-3 mb-4">Navigation</p>
           <ul className="space-y-1">
             {navItems.map(({ path, icon: Icon, label }) => (
               <li key={path}>
                 <NavLink
                   to={path}
-                  data-testid={`nav-${label.toLowerCase()}`}
+                  data-testid={`nav-${label.toLowerCase().replace(' ', '-')}`}
                   className={({ isActive }) =>
                     `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
                       isActive
@@ -75,6 +75,32 @@ const DashboardLayout = () => {
               </li>
             ))}
           </ul>
+
+          {/* Super Admin Section */}
+          {user?.role === 'super_admin' && (
+            <>
+              <p className="text-xs font-bold tracking-[0.2em] uppercase text-zinc-600 px-3 mb-4 mt-6">Admin</p>
+              <ul className="space-y-1">
+                {adminItems.map(({ path, icon: Icon, label }) => (
+                  <li key={path}>
+                    <NavLink
+                      to={path}
+                      className={({ isActive }) =>
+                        `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
+                          isActive
+                            ? 'bg-white/5 text-white border-l-2 border-amber-400'
+                            : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                        }`
+                      }
+                    >
+                      <Icon className="w-5 h-5" />
+                      <span className="font-medium">{label}</span>
+                    </NavLink>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </nav>
 
         {/* AI Badge */}
@@ -85,7 +111,7 @@ const DashboardLayout = () => {
               <span className="text-sm font-semibold text-[#00E599]">AI Powered</span>
             </div>
             <p className="text-xs text-zinc-400">
-              Gemini 3 Flash handles customer conversations automatically
+              {user?.business_name || 'Gemini'} — RAG Knowledge Active
             </p>
           </div>
         </div>
@@ -94,11 +120,13 @@ const DashboardLayout = () => {
         <div className="p-3 border-t border-white/5">
           <div className="flex items-center gap-3 px-3 py-2 mb-2">
             <div className="w-8 h-8 rounded-full bg-[#111] flex items-center justify-center text-sm font-semibold">
-              {user.username?.charAt(0).toUpperCase()}
+              {user?.username?.charAt(0).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{user.username}</p>
-              <p className="text-xs text-zinc-500">Administrator</p>
+              <p className="text-sm font-medium truncate">{user?.username}</p>
+              <p className="text-xs text-zinc-500 truncate">
+                {user?.role === 'super_admin' ? '⭐ Super Admin' : user?.business_name || 'User'}
+              </p>
             </div>
           </div>
           <button
@@ -112,7 +140,6 @@ const DashboardLayout = () => {
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="ml-[260px] min-h-screen">
         <Outlet />
       </main>

@@ -39,7 +39,7 @@ export const AuthProvider = ({ children }) => {
     const { token: newToken, user: userData } = response.data;
     localStorage.setItem('token', newToken);
     setToken(newToken);
-    setUser(userData);
+    setUser(userData); // includes role, business_name
     return userData;
   };
 
