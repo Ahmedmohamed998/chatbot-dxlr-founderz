@@ -6,6 +6,8 @@ import { Users, Plus, Trash2, Edit2, X, Eye, EyeOff, CheckCircle2, AlertCircle, 
 const AdminUsers = () => {
   const { user, api } = useAuth();
   const { success, error } = useToast();
+
+  // ALL hooks must be declared before any early returns
   const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -16,8 +18,6 @@ const AdminUsers = () => {
     meta_access_token: '', meta_phone_number_id: '', meta_verify_token: ''
   });
   const [isSaving, setIsSaving] = useState(false);
-
-  if (user?.role !== 'super_admin') return <Navigate to="/dashboard/inbox" replace />;
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -30,7 +30,15 @@ const AdminUsers = () => {
     }
   }, [api, error]);
 
-  useEffect(() => { fetchUsers(); }, [fetchUsers]);
+  useEffect(() => {
+    if (user?.role === 'super_admin') {
+      fetchUsers();
+    }
+  }, [fetchUsers, user]);
+
+  // Role guard AFTER all hooks
+  if (!user) return null;
+  if (user.role !== 'super_admin') return <Navigate to="/dashboard/inbox" replace />;
 
   const openCreate = () => {
     setEditingUser(null);
