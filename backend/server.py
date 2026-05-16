@@ -313,7 +313,8 @@ async def generate_ai_response(phone_number: str, incoming_message: str, message
             f"You are a helpful WhatsApp chatbot assistant. Be concise, friendly, and helpful.{context}\n\n"
             "Instructions:\n- Answer based on the knowledge above when relevant\n"
             "- Keep responses brief and suitable for WhatsApp\n"
-            "- If you don't know something, be honest"
+            "- If you don't know something, be honest\n"
+            "- answer with the same customer question language"
         )
         history_text = "\n".join([
             f"{'Customer' if msg.get('role') == 'user' else 'Assistant'}: {msg.get('content', '')}"
@@ -321,7 +322,7 @@ async def generate_ai_response(phone_number: str, incoming_message: str, message
         ]) if message_history else ""
         full_message = f"Previous conversation:\n{history_text}\n\nNew message: {incoming_message}" if history_text else incoming_message
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
+            model='gemini-2.5-flash',
             contents=full_message,
             config=types.GenerateContentConfig(system_instruction=system_message)
         )
@@ -635,19 +636,52 @@ async def get_templates(current_user: Dict = Depends(get_current_user)):
     pid = current_user['meta_phone_number_id']
     if token and pid:
         try:
-            url = f"https://graph.facebook.com/v18.0/{pid}/message_templates"
             async with httpx.AsyncClient() as http_client:
-                resp = await http_client.get(url, headers={"Authorization": f"Bearer {token}"})
+                # Step 1: Look up WABA ID from the phone number ID
+                waba_resp = await http_client.get(
+                    f"https://graph.facebook.com/v18.0/{pid}",
+                    params={"fields": "whatsapp_business_account"},
+                    headers={"Authorization": f"Bearer {token}"}
+                )
+                waba_id = None
+                if waba_resp.status_code == 200:
+                    waba_data = waba_resp.json()
+                    waba_id = waba_data.get("whatsapp_business_account", {}).get("id")
+                    logger.info(f"Resolved WABA ID: {waba_id} for phone number ID: {pid}")
+
+                # Step 2: Fetch templates using WABA ID (correct endpoint)
+                if waba_id:
+                    resp = await http_client.get(
+                        f"https://graph.facebook.com/v18.0/{waba_id}/message_templates",
+                        params={"limit": 100},
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                else:
+                    # Fallback: try directly with phone number ID
+                    resp = await http_client.get(
+                        f"https://graph.facebook.com/v18.0/{pid}/message_templates",
+                        params={"limit": 100},
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+
+                logger.info(f"Templates API status: {resp.status_code}")
                 if resp.status_code == 200:
                     templates = resp.json().get("data", [])
+                    logger.info(f"Fetched {len(templates)} templates from Meta")
                     async with pool.acquire() as conn:
+                        # Delete old synced templates and re-insert fresh ones
+                        await conn.execute(
+                            "DELETE FROM templates WHERE user_id=$1 AND meta_template_id IS NOT NULL",
+                            current_user['id']
+                        )
                         for t in templates:
                             await conn.execute(
                                 """INSERT INTO templates (user_id,name,category,language,status,components,meta_template_id)
-                                   VALUES ($1,$2,$3,$4,$5,$6,$7)
-                                   ON CONFLICT DO NOTHING""",
+                                   VALUES ($1,$2,$3,$4,$5,$6,$7)""",
                                 current_user['id'], t.get("name"), t.get("category"), t.get("language"),
                                 t.get("status"), json.dumps(t.get("components")), t.get("id"))
+                else:
+                    logger.error(f"Meta templates error: {resp.status_code} - {resp.text}")
         except Exception as e:
             logger.error(f"Meta templates fetch error: {e}")
     async with pool.acquire() as conn:
