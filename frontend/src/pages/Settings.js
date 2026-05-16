@@ -10,6 +10,7 @@ const Settings = () => {
     business_name: '',
     meta_access_token: '',
     meta_phone_number_id: '',
+    meta_waba_id: '',
     meta_verify_token: '',
     password: '',
     confirm_password: '',
@@ -31,6 +32,7 @@ const Settings = () => {
           ...prev,
           business_name: s.business_name || '',
           meta_phone_number_id: s.meta_phone_number_id || '',
+          meta_waba_id: s.meta_waba_id || '',
           meta_verify_token: s.meta_verify_token || '',
         }));
         setHasToken(s.has_token);
@@ -54,6 +56,7 @@ const Settings = () => {
       if (form.business_name) payload.business_name = form.business_name;
       if (form.meta_access_token) payload.meta_access_token = form.meta_access_token;
       if (form.meta_phone_number_id) payload.meta_phone_number_id = form.meta_phone_number_id;
+      if (form.meta_waba_id) payload.meta_waba_id = form.meta_waba_id;
       if (form.meta_verify_token) payload.meta_verify_token = form.meta_verify_token;
       if (form.password) payload.password = form.password;
       await api.put('/settings', payload);
@@ -124,6 +127,17 @@ const Settings = () => {
               placeholder="107742890211817..."
               className="w-full px-4 py-3 bg-[#0A0A0A] border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#00E599] transition-colors font-mono text-sm"
             />
+          </Field>
+
+          <Field label="WhatsApp Business Account ID (WABA ID)" icon={Phone}>
+            <input
+              type="text"
+              value={form.meta_waba_id}
+              onChange={e => setForm(p => ({ ...p, meta_waba_id: e.target.value }))}
+              placeholder="135353879346191..."
+              className="w-full px-4 py-3 bg-[#0A0A0A] border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#00E599] transition-colors font-mono text-sm"
+            />
+            <p className="text-xs text-zinc-600 mt-1.5">Required for template sync. Find it in Meta Dev Console → WhatsApp → API Setup → "WhatsApp Business Account ID".</p>
           </Field>
 
           <Field label="Access Token" icon={Key}>

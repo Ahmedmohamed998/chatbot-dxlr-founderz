@@ -59,6 +59,10 @@ async def get_db_pool() -> Pool:
 async def init_db():
     pool = await get_db_pool()
     async with pool.acquire() as conn:
+        # Add meta_waba_id column if it doesn't exist (migration)
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS meta_waba_id VARCHAR(255)
+        """)
         admin = await conn.fetchrow("SELECT id FROM users WHERE username = $1", 'admin')
         if not admin:
             password_hash = bcrypt.hashpw('Admin123!'.encode(), bcrypt.gensalt()).decode()
@@ -112,6 +116,7 @@ class UpdateUserRequest(BaseModel):
     business_name: Optional[str] = None
     meta_access_token: Optional[str] = None
     meta_phone_number_id: Optional[str] = None
+    meta_waba_id: Optional[str] = None
     meta_verify_token: Optional[str] = None
     password: Optional[str] = None
 
@@ -391,6 +396,8 @@ async def update_settings(request: UpdateUserRequest, current_user: Dict = Depen
             updates.append(f"meta_phone_number_id = ${idx}"); vals.append(request.meta_phone_number_id); idx += 1
         if request.meta_verify_token is not None:
             updates.append(f"meta_verify_token = ${idx}"); vals.append(request.meta_verify_token); idx += 1
+        if request.meta_waba_id is not None:
+            updates.append(f"meta_waba_id = ${idx}"); vals.append(request.meta_waba_id); idx += 1
         if request.password is not None:
             pw_hash = bcrypt.hashpw(request.password.encode(), bcrypt.gensalt()).decode()
             updates.append(f"password_hash = ${idx}"); vals.append(pw_hash); idx += 1
@@ -405,6 +412,7 @@ async def get_settings(current_user: Dict = Depends(get_current_user)):
     return {
         "business_name": current_user['business_name'] or '',
         "meta_phone_number_id": current_user['meta_phone_number_id'] or '',
+        "meta_waba_id": current_user.get('meta_waba_id') or '',
         "meta_verify_token": current_user['meta_verify_token'] or '',
         "has_token": bool(current_user['meta_access_token']),
     }
@@ -633,43 +641,20 @@ async def toggle_ai(phone: str, request: ToggleAIRequest, current_user: Dict = D
 async def get_templates(current_user: Dict = Depends(get_current_user)):
     pool = await get_db_pool()
     token = current_user['meta_access_token']
-    pid = current_user['meta_phone_number_id']
-    if token and pid:
+    waba_id = current_user.get('meta_waba_id')
+    if token and waba_id:
         try:
             async with httpx.AsyncClient() as http_client:
-                # Step 1: Look up WABA ID from the phone number ID
-                waba_resp = await http_client.get(
-                    f"https://graph.facebook.com/v18.0/{pid}",
-                    params={"fields": "whatsapp_business_account"},
+                resp = await http_client.get(
+                    f"https://graph.facebook.com/v18.0/{waba_id}/message_templates",
+                    params={"limit": 100},
                     headers={"Authorization": f"Bearer {token}"}
                 )
-                waba_id = None
-                if waba_resp.status_code == 200:
-                    waba_data = waba_resp.json()
-                    waba_id = waba_data.get("whatsapp_business_account", {}).get("id")
-                    logger.info(f"Resolved WABA ID: {waba_id} for phone number ID: {pid}")
-
-                # Step 2: Fetch templates using WABA ID (correct endpoint)
-                if waba_id:
-                    resp = await http_client.get(
-                        f"https://graph.facebook.com/v18.0/{waba_id}/message_templates",
-                        params={"limit": 100},
-                        headers={"Authorization": f"Bearer {token}"}
-                    )
-                else:
-                    # Fallback: try directly with phone number ID
-                    resp = await http_client.get(
-                        f"https://graph.facebook.com/v18.0/{pid}/message_templates",
-                        params={"limit": 100},
-                        headers={"Authorization": f"Bearer {token}"}
-                    )
-
-                logger.info(f"Templates API status: {resp.status_code}")
+                logger.info(f"Templates API status: {resp.status_code} for WABA: {waba_id}")
                 if resp.status_code == 200:
                     templates = resp.json().get("data", [])
                     logger.info(f"Fetched {len(templates)} templates from Meta")
                     async with pool.acquire() as conn:
-                        # Delete old synced templates and re-insert fresh ones
                         await conn.execute(
                             "DELETE FROM templates WHERE user_id=$1 AND meta_template_id IS NOT NULL",
                             current_user['id']
@@ -684,6 +669,8 @@ async def get_templates(current_user: Dict = Depends(get_current_user)):
                     logger.error(f"Meta templates error: {resp.status_code} - {resp.text}")
         except Exception as e:
             logger.error(f"Meta templates fetch error: {e}")
+    elif token and not waba_id:
+        logger.warning("No WABA ID set — skipping template sync. Set it in Settings.")
     async with pool.acquire() as conn:
         rows = await conn.fetch("SELECT * FROM templates WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100", current_user['id'])
         return [TemplateResponse(id=str(t['id']),name=t['name'],category=t['category'],language=t['language'],
