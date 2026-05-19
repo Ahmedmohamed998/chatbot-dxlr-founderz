@@ -641,10 +641,9 @@ async def global_toggle_ai(request: ToggleAIRequest, current_user: Dict = Depend
     """Pause or resume AI for ALL sessions belonging to this user."""
     pool = await get_db_pool()
     async with pool.acquire() as conn:
-        result = await conn.fetchval(
+        await conn.execute(
             """UPDATE sessions SET is_bot_paused=$1, updated_at=CURRENT_TIMESTAMP
-               WHERE contact_id IN (SELECT id FROM contacts WHERE user_id=$2)
-               RETURNING count(*)""",
+               WHERE contact_id IN (SELECT id FROM contacts WHERE user_id=$2)""",
             request.is_paused, current_user['id']
         )
     await ws_manager.broadcast({
@@ -652,7 +651,7 @@ async def global_toggle_ai(request: ToggleAIRequest, current_user: Dict = Depend
         "user_id": current_user['id'],
         "is_paused": request.is_paused
     })
-    return {"success": True, "is_paused": request.is_paused, "sessions_updated": result or 0}
+    return {"success": True, "is_paused": request.is_paused}
 
 @api_router.get("/chats/ai/global-status")
 async def global_ai_status(current_user: Dict = Depends(get_current_user)):
