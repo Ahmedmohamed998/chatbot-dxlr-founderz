@@ -1,12 +1,41 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { NavLink, Outlet, useNavigate, Navigate } from 'react-router-dom';
 import { useAuth, useToast } from '../contexts/AppContext';
-import { Bot, MessageSquare, LayoutGrid, Megaphone, LogOut, Sparkles, BookOpen, Users, Settings } from 'lucide-react';
+import { Bot, MessageSquare, LayoutGrid, Megaphone, LogOut, Sparkles, BookOpen, Users, Settings, Power } from 'lucide-react';
 
 const DashboardLayout = () => {
-  const { user, logout, loading } = useAuth();
-  const { success } = useToast();
+  const { user, logout, api, loading } = useAuth();
+  const { success, error } = useToast();
   const navigate = useNavigate();
+  const [aiActive, setAiActive] = useState(true);
+  const [aiTogglingGlobal, setAiTogglingGlobal] = useState(false);
+
+  const fetchAiStatus = useCallback(async () => {
+    try {
+      const res = await api.get('/chats/ai/global-status');
+      setAiActive(res.data.ai_active);
+    } catch (err) {
+      // silent fail
+    }
+  }, [api]);
+
+  useEffect(() => {
+    if (user) fetchAiStatus();
+  }, [user, fetchAiStatus]);
+
+  const handleGlobalAiToggle = async () => {
+    setAiTogglingGlobal(true);
+    const newState = !aiActive;
+    try {
+      await api.put('/chats/ai/global-toggle', { is_paused: !newState });
+      setAiActive(newState);
+      success(newState ? '🤖 AI enabled for all chats' : '⏸ AI paused for all chats');
+    } catch (err) {
+      error('Failed to toggle AI');
+    } finally {
+      setAiTogglingGlobal(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -116,6 +145,34 @@ const DashboardLayout = () => {
           </div>
         </div>
 
+        {/* Global AI Toggle */}
+        <div className="px-3 mb-3">
+          <button
+            onClick={handleGlobalAiToggle}
+            disabled={aiTogglingGlobal}
+            title={aiActive ? 'Click to pause AI for all chats' : 'Click to enable AI for all chats'}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${
+              aiActive
+                ? 'bg-[#00E599]/10 border-[#00E599]/30 hover:bg-[#00E599]/20'
+                : 'bg-red-500/10 border-red-500/30 hover:bg-red-500/20'
+            } disabled:opacity-60 disabled:cursor-not-allowed`}
+          >
+            <div className="flex items-center gap-2">
+              <Power className={`w-4 h-4 ${aiActive ? 'text-[#00E599]' : 'text-red-400'}`} />
+              <div className="text-left">
+                <p className={`text-xs font-semibold ${aiActive ? 'text-[#00E599]' : 'text-red-400'}`}>
+                  AI {aiActive ? 'Active' : 'Paused'}
+                </p>
+                <p className="text-[10px] text-zinc-500">{aiActive ? 'Click to pause all' : 'Click to resume all'}</p>
+              </div>
+            </div>
+            {/* Toggle pill */}
+            <div className={`w-9 h-5 rounded-full transition-colors relative ${aiActive ? 'bg-[#00E599]' : 'bg-zinc-700'}`}>
+              <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${aiActive ? 'translate-x-4' : 'translate-x-0.5'}`} />
+            </div>
+          </button>
+        </div>
+
         {/* User & Logout */}
         <div className="p-3 border-t border-white/5">
           <div className="flex items-center gap-3 px-3 py-2 mb-2">
@@ -138,6 +195,7 @@ const DashboardLayout = () => {
             <span className="font-medium">Sign Out</span>
           </button>
         </div>
+
       </aside>
 
       <main className="ml-[260px] min-h-screen">

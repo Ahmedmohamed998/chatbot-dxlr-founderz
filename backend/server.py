@@ -636,6 +636,36 @@ async def toggle_ai(phone: str, request: ToggleAIRequest, current_user: Dict = D
         await conn.execute("UPDATE sessions SET is_bot_paused=$1,updated_at=CURRENT_TIMESTAMP WHERE contact_id=$2", request.is_paused, contact['id'])
     return {"success": True, "is_paused": request.is_paused}
 
+@api_router.put("/chats/ai/global-toggle")
+async def global_toggle_ai(request: ToggleAIRequest, current_user: Dict = Depends(get_current_user)):
+    """Pause or resume AI for ALL sessions belonging to this user."""
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        result = await conn.fetchval(
+            """UPDATE sessions SET is_bot_paused=$1, updated_at=CURRENT_TIMESTAMP
+               WHERE contact_id IN (SELECT id FROM contacts WHERE user_id=$2)
+               RETURNING count(*)""",
+            request.is_paused, current_user['id']
+        )
+    await ws_manager.broadcast({
+        "type": "global_ai_toggle",
+        "user_id": current_user['id'],
+        "is_paused": request.is_paused
+    })
+    return {"success": True, "is_paused": request.is_paused, "sessions_updated": result or 0}
+
+@api_router.get("/chats/ai/global-status")
+async def global_ai_status(current_user: Dict = Depends(get_current_user)):
+    """Returns True if ANY session has AI active (not paused)."""
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        active = await conn.fetchval(
+            """SELECT COUNT(*) FROM sessions WHERE is_bot_paused=FALSE
+               AND contact_id IN (SELECT id FROM contacts WHERE user_id=$1)""",
+            current_user['id']
+        )
+    return {"ai_active": (active or 0) > 0, "active_sessions": active or 0}
+
 # ── Templates ────────────────────────────────────────────────
 @api_router.get("/templates", response_model=List[TemplateResponse])
 async def get_templates(current_user: Dict = Depends(get_current_user)):
