@@ -709,20 +709,34 @@ async def get_templates(current_user: Dict = Depends(get_current_user)):
 @api_router.post("/templates", response_model=TemplateResponse)
 async def create_template(request: CreateTemplateRequest, current_user: Dict = Depends(get_current_user)):
     token = current_user['meta_access_token']
-    pid = current_user['meta_phone_number_id']
+    waba_id = current_user.get('meta_waba_id')
     meta_template_id, status = None, "PENDING"
-    if token and pid:
+    if token and waba_id:
         try:
-            url = f"https://graph.facebook.com/v18.0/{pid}/message_templates"
-            payload = {"name":request.name,"category":request.category,"language":request.language,"components":request.components}
+            # Templates are created at WABA level, NOT phone number level
+            url = f"https://graph.facebook.com/v18.0/{waba_id}/message_templates"
+            payload = {
+                "name": request.name,
+                "category": request.category,
+                "language": request.language,
+                "components": request.components
+            }
             async with httpx.AsyncClient() as http_client:
-                resp = await http_client.post(url, json=payload, headers={"Authorization":f"Bearer {token}","Content-Type":"application/json"})
+                resp = await http_client.post(
+                    url, json=payload,
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                )
+                logger.info(f"Create template Meta response: {resp.status_code} - {resp.text}")
                 if resp.status_code == 200:
                     data = resp.json()
                     meta_template_id = data.get("id")
                     status = data.get("status", "PENDING")
-        except Exception:
-            pass
+                else:
+                    logger.error(f"Meta create template error: {resp.status_code} - {resp.text}")
+        except Exception as e:
+            logger.error(f"Create template exception: {e}")
+    elif not waba_id:
+        logger.warning("No WABA ID set — template saved locally only. Set WABA ID in Settings.")
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
