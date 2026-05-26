@@ -2,13 +2,13 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth, useToast } from '../contexts/AppContext';
 import { 
   MessageSquare, Send, Bot, User, UserCog, Search, 
-  Phone, Clock, MoreVertical, Sparkles, Loader2, Wifi, WifiOff 
+  Phone, Clock, MoreVertical, Sparkles, Loader2, Wifi, WifiOff,
+  Pencil, Check, X, UserCheck
 } from 'lucide-react';
 import { Switch } from '../components/ui/switch';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001';
 
-// Skeleton Loader Component
 const ChatSkeleton = () => (
   <div className="space-y-3 p-4">
     {[...Array(5)].map((_, i) => (
@@ -33,6 +33,23 @@ const MessageSkeleton = () => (
   </div>
 );
 
+// Avatar with initials when name is saved
+const ContactAvatar = ({ name, phone }) => {
+  const hasName = name && name !== phone;
+  const initials = hasName
+    ? name.trim().split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+    : null;
+  return (
+    <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 border ${
+      hasName
+        ? 'bg-[#00E599]/10 border-[#00E599]/30 text-[#00E599] font-semibold text-sm'
+        : 'bg-[#111] border-white/10'
+    }`}>
+      {hasName ? initials : <Phone className="w-4 h-4 text-zinc-400" />}
+    </div>
+  );
+};
+
 const Inbox = () => {
   const { api } = useAuth();
   const { success, error, info } = useToast();
@@ -47,16 +64,19 @@ const Inbox = () => {
   const [isSending, setIsSending] = useState(false);
   const [isTogglingAI, setIsTogglingAI] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
+
+  // Contact name editing state
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [isSavingName, setIsSavingName] = useState(false);
+  const nameInputRef = useRef(null);
   
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const wsRef = useRef(null);
   const selectedChatRef = useRef(null);
   
-  // Keep selectedChatRef in sync with selectedChat
-  useEffect(() => {
-    selectedChatRef.current = selectedChat;
-  }, [selectedChat]);
+  useEffect(() => { selectedChatRef.current = selectedChat; }, [selectedChat]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -86,122 +106,80 @@ const Inbox = () => {
     }
   }, [api, error]);
 
-  useEffect(() => {
-    fetchChats();
-    // Initial fetch only - WebSocket handles real-time updates
-  }, [fetchChats]);
+  useEffect(() => { fetchChats(); }, [fetchChats]);
   
-  // WebSocket connection for real-time updates
+  // WebSocket connection
   useEffect(() => {
     const connectWebSocket = () => {
-      // Convert http(s) to ws(s)
       const wsUrl = BACKEND_URL.replace(/^http/, 'ws') + '/api/ws';
-      console.log('Connecting to WebSocket:', wsUrl);
-      
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       
-      ws.onopen = () => {
-        console.log('WebSocket connected');
-        setWsConnected(true);
-        info('Real-time updates connected');
-      };
+      ws.onopen = () => { setWsConnected(true); info('Real-time updates connected'); };
       
       ws.onmessage = (event) => {
         if (event.data === 'pong') return;
         try {
           const data = JSON.parse(event.data);
-          console.log('WebSocket message received:', data);
-          
           if (data.type === 'new_message') {
             const msgData = data.data;
-            
-            // Update chats list (refresh to get latest)
             fetchChats();
-            
-            // If this message belongs to the currently selected chat, add it
             const currentChat = selectedChatRef.current;
             if (currentChat && currentChat.contact?.phone_number === msgData.phone_number) {
               setMessages(prev => {
-                // Check if message already exists
-                const exists = prev.some(m => m.id === msgData.id);
-                if (exists) return prev;
-                
+                if (prev.some(m => m.id === msgData.id)) return prev;
                 return [...prev, {
-                  id: msgData.id,
-                  session_id: msgData.session_id,
-                  direction: msgData.direction,
-                  sender_type: msgData.sender_type,
-                  text: msgData.text,
-                  status: 'sent',
-                  created_at: msgData.created_at
+                  id: msgData.id, session_id: msgData.session_id,
+                  direction: msgData.direction, sender_type: msgData.sender_type,
+                  text: msgData.text, status: 'sent', created_at: msgData.created_at
                 }];
               });
             }
           }
-        } catch (e) {
-          console.error('Failed to parse WebSocket message:', e);
-        }
+        } catch (e) { console.error('WS parse error:', e); }
       };
       
-      ws.onclose = () => {
-        console.log('WebSocket disconnected');
-        setWsConnected(false);
-        // Reconnect after 3 seconds
-        setTimeout(connectWebSocket, 3000);
-      };
+      ws.onclose = () => { setWsConnected(false); setTimeout(connectWebSocket, 3000); };
+      ws.onerror = (err) => { console.error('WS error:', err); ws.close(); };
       
-      ws.onerror = (err) => {
-        console.error('WebSocket error:', err);
-        ws.close();
-      };
-      
-      // Heartbeat every 30 seconds
       const heartbeat = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send('ping');
-        }
+        if (ws.readyState === WebSocket.OPEN) ws.send('ping');
       }, 30000);
       
-      return () => {
-        clearInterval(heartbeat);
-        ws.close();
-      };
+      return () => { clearInterval(heartbeat); ws.close(); };
     };
-    
     const cleanup = connectWebSocket();
     return cleanup;
   }, [fetchChats, info]);
 
   useEffect(() => {
-    if (selectedChat) {
-      fetchMessages(selectedChat.contact.phone_number);
-      // No polling needed - WebSocket handles real-time updates
-    }
+    if (selectedChat) fetchMessages(selectedChat.contact.phone_number);
   }, [selectedChat, fetchMessages]);
 
+  useEffect(() => { scrollToBottom(); }, [messages]);
+
+  // Focus name input when editing starts
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    if (isEditingName) {
+      setTimeout(() => nameInputRef.current?.focus(), 50);
+    }
+  }, [isEditingName]);
 
   const handleSelectChat = (chat) => {
     setSelectedChat(chat);
     setMessages([]);
+    setIsEditingName(false);
     inputRef.current?.focus();
   };
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !selectedChat || isSending) return;
-
     setIsSending(true);
     try {
-      await api.post(`/chats/${selectedChat.contact.phone_number}/send`, {
-        text: newMessage.trim(),
-      });
+      await api.post(`/chats/${selectedChat.contact.phone_number}/send`, { text: newMessage.trim() });
       setNewMessage('');
       success('Message sent');
-      // No need to fetch - WebSocket will push the update
     } catch (err) {
       error('Failed to send message');
     } finally {
@@ -211,14 +189,11 @@ const Inbox = () => {
 
   const handleToggleAI = async () => {
     if (!selectedChat || isTogglingAI) return;
-
     setIsTogglingAI(true);
     try {
       const newPausedState = !selectedChat.is_bot_paused;
-      await api.put(`/chats/${selectedChat.contact.phone_number}/toggle-ai`, {
-        is_paused: newPausedState,
-      });
-      setSelectedChat((prev) => ({ ...prev, is_bot_paused: newPausedState }));
+      await api.put(`/chats/${selectedChat.contact.phone_number}/toggle-ai`, { is_paused: newPausedState });
+      setSelectedChat(prev => ({ ...prev, is_bot_paused: newPausedState }));
       success(newPausedState ? 'AI Bot paused' : 'AI Bot resumed');
       await fetchChats();
     } catch (err) {
@@ -228,12 +203,52 @@ const Inbox = () => {
     }
   };
 
+  const handleStartEditName = () => {
+    const currentName = selectedChat?.contact?.name;
+    const phone = selectedChat?.contact?.phone_number;
+    // If name is the phone number (no custom name yet), start with empty
+    setNameInput(currentName && currentName !== phone ? currentName : '');
+    setIsEditingName(true);
+  };
+
+  const handleSaveName = async () => {
+    if (!nameInput.trim() || !selectedChat) return;
+    setIsSavingName(true);
+    try {
+      const phone = selectedChat.contact.phone_number;
+      await api.put(`/contacts/${phone}/name`, { name: nameInput.trim() });
+      
+      // Update selectedChat state
+      const updatedContact = { ...selectedChat.contact, name: nameInput.trim() };
+      setSelectedChat(prev => ({ ...prev, contact: updatedContact }));
+      
+      // Update in chats list too
+      setChats(prev => prev.map(c =>
+        c.id === selectedChat.id
+          ? { ...c, contact: { ...c.contact, name: nameInput.trim() } }
+          : c
+      ));
+      
+      setIsEditingName(false);
+      success(`Contact saved as "${nameInput.trim()}"`);
+    } catch (err) {
+      error(err.response?.data?.detail || 'Failed to save contact');
+    } finally {
+      setIsSavingName(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditingName(false);
+    setNameInput('');
+  };
+
   const filteredChats = chats.filter((chat) => {
-    const searchLower = searchQuery.toLowerCase();
+    const q = searchQuery.toLowerCase();
     return (
-      chat.contact?.phone_number?.toLowerCase().includes(searchLower) ||
-      chat.contact?.name?.toLowerCase().includes(searchLower) ||
-      chat.last_message?.text?.toLowerCase().includes(searchLower)
+      chat.contact?.phone_number?.toLowerCase().includes(q) ||
+      chat.contact?.name?.toLowerCase().includes(q) ||
+      chat.last_message?.text?.toLowerCase().includes(q)
     );
   });
 
@@ -241,41 +256,28 @@ const Inbox = () => {
     const date = new Date(dateString);
     const now = new Date();
     const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 0) {
-      return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-    } else if (diffDays === 1) {
-      return 'Yesterday';
-    } else if (diffDays < 7) {
-      return date.toLocaleDateString('en-US', { weekday: 'short' });
-    }
+    if (diffDays === 0) return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return date.toLocaleDateString('en-US', { weekday: 'short' });
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
   const getBubbleIcon = (senderType) => {
-    switch (senderType) {
-      case 'CUSTOMER':
-        return <User className="w-3 h-3" />;
-      case 'BOT':
-        return <Bot className="w-3 h-3" />;
-      case 'ADMIN':
-        return <UserCog className="w-3 h-3" />;
-      default:
-        return null;
-    }
+    if (senderType === 'CUSTOMER') return <User className="w-3 h-3" />;
+    if (senderType === 'BOT') return <Bot className="w-3 h-3" />;
+    if (senderType === 'ADMIN') return <UserCog className="w-3 h-3" />;
+    return null;
   };
 
   const getBubbleClass = (senderType) => {
-    switch (senderType) {
-      case 'CUSTOMER':
-        return 'bubble-customer';
-      case 'BOT':
-        return 'bubble-bot';
-      case 'ADMIN':
-        return 'bubble-admin';
-      default:
-        return 'bubble-customer';
-    }
+    if (senderType === 'CUSTOMER') return 'bubble-customer';
+    if (senderType === 'BOT') return 'bubble-bot';
+    if (senderType === 'ADMIN') return 'bubble-admin';
+    return 'bubble-customer';
+  };
+
+  const contactHasCustomName = (chat) => {
+    return chat?.contact?.name && chat.contact.name !== chat.contact.phone_number;
   };
 
   return (
@@ -285,34 +287,19 @@ const Inbox = () => {
         {/* Header */}
         <div className="h-16 px-4 flex items-center justify-between border-b border-white/5">
           <div className="flex items-center">
-            <h1 className="text-xl font-bold tracking-tight" style={{ fontFamily: 'Cabinet Grotesk' }}>
-              Inbox
-            </h1>
+            <h1 className="text-xl font-bold tracking-tight" style={{ fontFamily: 'Cabinet Grotesk' }}>Inbox</h1>
             <span className="ml-2 px-2 py-0.5 text-xs font-medium bg-[#00E599]/10 text-[#00E599] rounded-full">
               {chats.length}
             </span>
           </div>
-          {/* WebSocket Status Indicator */}
-          <div 
+          <div
             className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs ${
-              wsConnected 
-                ? 'bg-[#00E599]/10 text-[#00E599]' 
-                : 'bg-amber-500/10 text-amber-400'
+              wsConnected ? 'bg-[#00E599]/10 text-[#00E599]' : 'bg-amber-500/10 text-amber-400'
             }`}
             title={wsConnected ? 'Real-time updates active' : 'Reconnecting...'}
             data-testid="ws-status-indicator"
           >
-            {wsConnected ? (
-              <>
-                <Wifi className="w-3 h-3" />
-                <span>Live</span>
-              </>
-            ) : (
-              <>
-                <WifiOff className="w-3 h-3" />
-                <span>Connecting</span>
-              </>
-            )}
+            {wsConnected ? <><Wifi className="w-3 h-3" /><span>Live</span></> : <><WifiOff className="w-3 h-3" /><span>Connecting</span></>}
           </div>
         </div>
 
@@ -324,7 +311,7 @@ const Inbox = () => {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search conversations..."
+              placeholder="Search by name or number..."
               data-testid="chat-search-input"
               className="w-full pl-10 pr-4 py-2.5 bg-[#111] border border-white/5 rounded-lg text-sm focus:border-[#00E599] focus:ring-1 focus:ring-[#00E599]"
             />
@@ -339,9 +326,7 @@ const Inbox = () => {
             <div className="flex flex-col items-center justify-center h-full text-center px-4">
               <MessageSquare className="w-12 h-12 text-zinc-700 mb-3" />
               <p className="text-zinc-500">No conversations yet</p>
-              <p className="text-xs text-zinc-600 mt-1">
-                Messages will appear here when customers contact you
-              </p>
+              <p className="text-xs text-zinc-600 mt-1">Messages will appear here when customers contact you</p>
             </div>
           ) : (
             <div className="divide-y divide-white/5">
@@ -354,36 +339,36 @@ const Inbox = () => {
                     selectedChat?.id === chat.id ? 'bg-white/5' : ''
                   }`}
                 >
-                  {/* Avatar */}
-                  <div className="w-10 h-10 rounded-full bg-[#111] border border-white/10 flex items-center justify-center flex-shrink-0">
-                    <Phone className="w-4 h-4 text-zinc-400" />
-                  </div>
-                  
-                  {/* Content */}
+                  <ContactAvatar name={chat.contact?.name} phone={chat.contact?.phone_number} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium truncate">
-                        {chat.contact?.name || chat.contact?.phone_number}
-                      </span>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-medium truncate">
+                          {contactHasCustomName(chat) ? chat.contact.name : chat.contact?.phone_number}
+                        </span>
+                        {contactHasCustomName(chat) && (
+                          <UserCheck className="w-3 h-3 text-[#00E599] flex-shrink-0" />
+                        )}
+                      </div>
                       {chat.last_message && (
                         <span className="text-xs text-zinc-500 ml-2 flex-shrink-0">
                           {formatTime(chat.last_message.created_at)}
                         </span>
                       )}
                     </div>
+                    {contactHasCustomName(chat) && (
+                      <p className="text-xs text-zinc-600 font-mono mb-0.5">{chat.contact.phone_number}</p>
+                    )}
                     <div className="flex items-center gap-2">
                       {chat.last_message ? (
                         <>
                           {getBubbleIcon(chat.last_message.sender_type)}
-                          <p className="text-sm text-zinc-400 truncate">
-                            {chat.last_message.text}
-                          </p>
+                          <p className="text-sm text-zinc-400 truncate">{chat.last_message.text}</p>
                         </>
                       ) : (
                         <p className="text-sm text-zinc-500 italic">No messages</p>
                       )}
                     </div>
-                    {/* AI Status indicator */}
                     {!chat.is_bot_paused && (
                       <div className="flex items-center gap-1 mt-1">
                         <Sparkles className="w-3 h-3 text-[#00D4FF]" />
@@ -404,21 +389,69 @@ const Inbox = () => {
           <>
             {/* Chat Header */}
             <div className="h-16 px-6 flex items-center justify-between border-b border-white/5 bg-black/60 backdrop-blur-xl sticky top-0 z-10">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-[#111] border border-white/10 flex items-center justify-center">
-                  <Phone className="w-4 h-4 text-zinc-400" />
-                </div>
-                <div>
-                  <h2 className="font-semibold">
-                    {selectedChat.contact?.name || selectedChat.contact?.phone_number}
-                  </h2>
-                  <p className="text-xs text-zinc-500 font-mono">
-                    {selectedChat.contact?.phone_number}
-                  </p>
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <ContactAvatar name={selectedChat.contact?.name} phone={selectedChat.contact?.phone_number} />
+                <div className="min-w-0 flex-1">
+                  {isEditingName ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        ref={nameInputRef}
+                        type="text"
+                        value={nameInput}
+                        onChange={e => setNameInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') handleSaveName(); if (e.key === 'Escape') handleCancelEdit(); }}
+                        placeholder="Enter contact name..."
+                        className="flex-1 px-2 py-1 bg-[#111] border border-[#00E599]/50 rounded-lg text-sm focus:outline-none focus:border-[#00E599] text-white min-w-0"
+                        maxLength={100}
+                      />
+                      <button
+                        onClick={handleSaveName}
+                        disabled={!nameInput.trim() || isSavingName}
+                        className="p-1.5 bg-[#00E599] text-black rounded-lg hover:bg-[#00CC88] transition-colors disabled:opacity-50 flex-shrink-0"
+                        title="Save name"
+                      >
+                        {isSavingName ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                      </button>
+                      <button
+                        onClick={handleCancelEdit}
+                        className="p-1.5 bg-white/10 text-zinc-400 rounded-lg hover:bg-white/20 transition-colors flex-shrink-0"
+                        title="Cancel"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 group">
+                      <div className="min-w-0">
+                        <h2 className="font-semibold truncate">
+                          {contactHasCustomName(selectedChat) ? selectedChat.contact.name : selectedChat.contact?.phone_number}
+                        </h2>
+                        {contactHasCustomName(selectedChat) && (
+                          <p className="text-xs text-zinc-500 font-mono">{selectedChat.contact?.phone_number}</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={handleStartEditName}
+                        className="p-1 rounded-lg text-zinc-600 hover:text-[#00E599] hover:bg-[#00E599]/10 transition-all opacity-0 group-hover:opacity-100 flex-shrink-0"
+                        title={contactHasCustomName(selectedChat) ? 'Edit contact name' : 'Save contact name'}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      {!contactHasCustomName(selectedChat) && (
+                        <button
+                          onClick={handleStartEditName}
+                          className="flex items-center gap-1.5 px-2 py-1 text-xs bg-[#00E599]/10 text-[#00E599] border border-[#00E599]/20 rounded-full hover:bg-[#00E599]/20 transition-all flex-shrink-0"
+                        >
+                          <UserCheck className="w-3 h-3" />
+                          Save Contact
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 flex-shrink-0">
                 {/* AI Toggle */}
                 <div className="flex items-center gap-3 px-4 py-2 bg-[#111] rounded-lg border border-white/5">
                   <div className="flex items-center gap-2">
@@ -434,7 +467,6 @@ const Inbox = () => {
                     disabled={isTogglingAI}
                   />
                 </div>
-
                 <button className="p-2 hover:bg-white/5 rounded-lg transition-colors">
                   <MoreVertical className="w-5 h-5 text-zinc-400" />
                 </button>
@@ -456,37 +488,23 @@ const Inbox = () => {
                     <div
                       key={message.id}
                       data-testid={`message-${message.id}`}
-                      className={`flex ${
-                        message.direction === 'INBOUND' ? 'justify-start' : 'justify-end'
-                      }`}
+                      className={`flex ${message.direction === 'INBOUND' ? 'justify-start' : 'justify-end'}`}
                     >
-                      <div
-                        className={`max-w-[75%] px-4 py-3 rounded-xl ${getBubbleClass(
-                          message.sender_type
-                        )}`}
-                      >
+                      <div className={`max-w-[75%] px-4 py-3 rounded-xl ${getBubbleClass(message.sender_type)}`}>
                         <div className="flex items-center gap-2 mb-1">
                           {getBubbleIcon(message.sender_type)}
                           <span className="text-xs opacity-70 font-medium">
                             {message.sender_type === 'CUSTOMER'
-                              ? 'Customer'
-                              : message.sender_type === 'BOT'
-                              ? 'AI Bot'
-                              : 'Admin'}
+                              ? (contactHasCustomName(selectedChat) ? selectedChat.contact.name : 'Customer')
+                              : message.sender_type === 'BOT' ? 'AI Bot' : 'Admin'}
                           </span>
-                          <span className="text-xs opacity-50">
-                            {formatTime(message.created_at)}
-                          </span>
+                          <span className="text-xs opacity-50">{formatTime(message.created_at)}</span>
                         </div>
-                        <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                          {message.text}
-                        </p>
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.text}</p>
                         {message.status && message.direction === 'OUTBOUND' && (
                           <div className="flex items-center justify-end gap-1 mt-1">
                             <Clock className="w-3 h-3 opacity-50" />
-                            <span className="text-xs opacity-50 capitalize">
-                              {message.status}
-                            </span>
+                            <span className="text-xs opacity-50 capitalize">{message.status}</span>
                           </div>
                         )}
                       </div>
@@ -516,11 +534,7 @@ const Inbox = () => {
                   disabled={!newMessage.trim() || isSending}
                   className="p-3 bg-[#00E599] hover:bg-[#00CC88] text-black rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isSending ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <Send className="w-5 h-5" />
-                  )}
+                  {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
                 </button>
               </form>
             </div>

@@ -59,10 +59,10 @@ async def get_db_pool() -> Pool:
 async def init_db():
     pool = await get_db_pool()
     async with pool.acquire() as conn:
-        # Add meta_waba_id column if it doesn't exist (migration)
-        await conn.execute("""
-            ALTER TABLE users ADD COLUMN IF NOT EXISTS meta_waba_id VARCHAR(255)
-        """)
+        # Migrations: add new columns if they don't exist
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS meta_waba_id VARCHAR(255)")
+        await conn.execute("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP")
+
         admin = await conn.fetchrow("SELECT id FROM users WHERE username = $1", 'admin')
         if not admin:
             password_hash = bcrypt.hashpw('Admin123!'.encode(), bcrypt.gensalt()).decode()
@@ -159,6 +159,9 @@ class SendMessageRequest(BaseModel):
 
 class ToggleAIRequest(BaseModel):
     is_paused: bool
+
+class UpdateContactNameRequest(BaseModel):
+    name: str
 
 class TemplateResponse(BaseModel):
     id: str
@@ -521,7 +524,8 @@ async def handle_webhook(request: Request):
                         async with pool.acquire() as conn:
                             contact = await conn.fetchrow(
                                 """INSERT INTO contacts (user_id,phone_number,name) VALUES ($1,$2,$2)
-                                   ON CONFLICT (user_id,phone_number) DO UPDATE SET name=EXCLUDED.name RETURNING id,phone_number""",
+                                   ON CONFLICT (user_id,phone_number) DO UPDATE SET updated_at=CURRENT_TIMESTAMP
+                                   RETURNING id,phone_number,name""",
                                 tenant_id, phone)
                             session = await conn.fetchrow("SELECT * FROM sessions WHERE contact_id=$1", contact['id'])
                             if not session:
@@ -566,6 +570,20 @@ async def handle_webhook(request: Request):
     except Exception as e:
         logger.error(f"Webhook error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# ── Contact Management ───────────────────────────────────────
+@api_router.put("/contacts/{phone}/name")
+async def update_contact_name(phone: str, request: UpdateContactNameRequest, current_user: Dict = Depends(get_current_user)):
+    """Save or update a contact's display name."""
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        contact = await conn.fetchrow(
+            "UPDATE contacts SET name=$1 WHERE phone_number=$2 AND user_id=$3 RETURNING id, name, phone_number",
+            request.name.strip(), phone, current_user['id']
+        )
+        if not contact:
+            raise HTTPException(status_code=404, detail="Contact not found")
+    return {"success": True, "name": contact['name'], "phone_number": contact['phone_number']}
 
 # ── Chat Endpoints ───────────────────────────────────────────
 @api_router.get("/chats", response_model=List[SessionResponse])
