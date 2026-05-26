@@ -163,6 +163,12 @@ class ToggleAIRequest(BaseModel):
 class UpdateContactNameRequest(BaseModel):
     name: str
 
+class LogMessageRequest(BaseModel):
+    text: str
+    contact_name: Optional[str] = None      # optional display name for this contact
+    meta_message_id: Optional[str] = None  # wamid from Meta, if available
+    pause_ai: bool = True                  # pause AI for this session (recommended for order confirmations)
+
 class TemplateResponse(BaseModel):
     id: str
     name: str
@@ -585,6 +591,67 @@ async def update_contact_name(phone: str, request: UpdateContactNameRequest, cur
             raise HTTPException(status_code=404, detail="Contact not found")
     return {"success": True, "name": contact['name'], "phone_number": contact['phone_number']}
 
+@api_router.post("/chats/{phone}/log-outbound")
+async def log_outbound_message(
+    phone: str,
+    request: LogMessageRequest,
+    current_user: Dict = Depends(get_current_user)
+):
+    """
+    Log an externally-sent WhatsApp message (e.g. from n8n/Shopify automation)
+    so it appears in the Inbox alongside the customer conversation.
+    Call this endpoint AFTER your automation has already sent the message via Meta API.
+    """
+    pool = await get_db_pool()
+    user_id = current_user['id']
+    async with pool.acquire() as conn:
+        # Create contact if it doesn't exist yet
+        display_name = request.contact_name.strip() if request.contact_name else phone
+        contact = await conn.fetchrow(
+            """INSERT INTO contacts (user_id, phone_number, name)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (user_id, phone_number) DO UPDATE
+                 SET updated_at = CURRENT_TIMESTAMP
+               RETURNING id, phone_number, name""",
+            user_id, phone, display_name
+        )
+        # If a name was provided and contact already existed with phone as name, update it
+        if request.contact_name and contact['name'] == phone:
+            await conn.execute(
+                "UPDATE contacts SET name=$1 WHERE id=$2",
+                display_name, contact['id']
+            )
+        # Get or create session; new sessions from automations start with AI paused
+        session = await conn.fetchrow("SELECT * FROM sessions WHERE contact_id=$1", contact['id'])
+        if not session:
+            session = await conn.fetchrow(
+                "INSERT INTO sessions (contact_id, is_bot_paused) VALUES ($1, $2) RETURNING *",
+                contact['id'], request.pause_ai
+            )
+        # Log the outbound message as ADMIN (externally sent)
+        msg_id = await conn.fetchval(
+            """INSERT INTO messages (session_id, direction, sender_type, text, meta_message_id, status)
+               VALUES ($1, 'OUTBOUND', 'ADMIN', $2, $3, 'sent') RETURNING id""",
+            session['id'], request.text, request.meta_message_id
+        )
+    # Push to dashboard via WebSocket in real-time
+    await ws_manager.broadcast({
+        "type": "new_message",
+        "user_id": user_id,
+        "data": {
+            "id": str(msg_id),
+            "session_id": str(session['id']),
+            "phone_number": phone,
+            "direction": "OUTBOUND",
+            "sender_type": "ADMIN",
+            "text": request.text,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+    })
+    logger.info(f"Logged outbound message to {phone} for user {user_id}: {request.text[:50]}")
+    return {"success": True, "message_id": str(msg_id), "phone": phone}
+
+
 # ── Chat Endpoints ───────────────────────────────────────────
 @api_router.get("/chats", response_model=List[SessionResponse])
 async def get_chats(current_user: Dict = Depends(get_current_user)):
@@ -767,21 +834,80 @@ async def create_template(request: CreateTemplateRequest, current_user: Dict = D
 @api_router.post("/campaigns/send", response_model=CampaignResponse)
 async def send_campaign(request: CampaignRequest, current_user: Dict = Depends(get_current_user)):
     pool = await get_db_pool()
+    user_id = current_user['id']
     async with pool.acquire() as conn:
-        template = await conn.fetchrow("SELECT * FROM templates WHERE user_id=$1 AND name=$2 LIMIT 1", current_user['id'], request.template_name)
+        template = await conn.fetchrow(
+            "SELECT * FROM templates WHERE user_id=$1 AND name=$2 LIMIT 1",
+            user_id, request.template_name
+        )
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
+
+    # Extract template body text for inbox logging
+    template_text = request.template_name  # fallback
+    try:
+        components = json.loads(template['components']) if isinstance(template['components'], str) else template['components']
+        if components:
+            body = next((c for c in components if c.get('type') in ('BODY', 'body')), None)
+            if body and body.get('text'):
+                template_text = body['text']
+    except Exception:
+        pass
+
     sent_count, failed_count, details = 0, 0, []
     for phone in request.target_phone_numbers:
         phone = phone.strip()
         if not phone:
             continue
         try:
-            message_id = await send_whatsapp_template(phone, request.template_name, template['language'] or 'en',
-                                                      current_user['meta_access_token'], current_user['meta_phone_number_id'])
+            message_id = await send_whatsapp_template(
+                phone, request.template_name, template['language'] or 'en',
+                current_user['meta_access_token'], current_user['meta_phone_number_id']
+            )
             if message_id:
                 sent_count += 1
                 details.append({"phone": phone, "status": "sent", "message_id": message_id})
+
+                # ── Log to inbox ─────────────────────────────────
+                async with pool.acquire() as conn:
+                    # Ensure contact exists
+                    contact = await conn.fetchrow(
+                        """INSERT INTO contacts (user_id, phone_number, name)
+                           VALUES ($1, $2, $2)
+                           ON CONFLICT (user_id, phone_number) DO UPDATE
+                             SET updated_at = CURRENT_TIMESTAMP
+                           RETURNING id, phone_number, name""",
+                        user_id, phone
+                    )
+                    # Ensure session exists (AI paused — campaign contacts shouldn't get AI auto-replies)
+                    session = await conn.fetchrow(
+                        "SELECT * FROM sessions WHERE contact_id=$1", contact['id']
+                    )
+                    if not session:
+                        session = await conn.fetchrow(
+                            "INSERT INTO sessions (contact_id, is_bot_paused) VALUES ($1, TRUE) RETURNING *",
+                            contact['id']
+                        )
+                    # Log the campaign message
+                    msg_id = await conn.fetchval(
+                        """INSERT INTO messages (session_id, direction, sender_type, text, meta_message_id, status)
+                           VALUES ($1, 'OUTBOUND', 'ADMIN', $2, $3, 'sent') RETURNING id""",
+                        session['id'], f"[Campaign: {request.template_name}] {template_text}", message_id
+                    )
+                # Broadcast to inbox in real-time
+                await ws_manager.broadcast({
+                    "type": "new_message",
+                    "user_id": user_id,
+                    "data": {
+                        "id": str(msg_id),
+                        "session_id": str(session['id']),
+                        "phone_number": phone,
+                        "direction": "OUTBOUND",
+                        "sender_type": "ADMIN",
+                        "text": f"[Campaign: {request.template_name}] {template_text}",
+                        "created_at": datetime.now(timezone.utc).isoformat()
+                    }
+                })
             else:
                 failed_count += 1
                 details.append({"phone": phone, "status": "failed", "error": "No message ID returned"})
@@ -789,7 +915,8 @@ async def send_campaign(request: CampaignRequest, current_user: Dict = Depends(g
         except Exception as e:
             failed_count += 1
             details.append({"phone": phone, "status": "failed", "error": str(e)})
-    return CampaignResponse(success=failed_count==0, sent_count=sent_count, failed_count=failed_count, details=details)
+    return CampaignResponse(success=failed_count == 0, sent_count=sent_count, failed_count=failed_count, details=details)
+
 
 # ── Knowledge Base ───────────────────────────────────────────
 @api_router.post("/ai/ingest", response_model=IngestResponse)
