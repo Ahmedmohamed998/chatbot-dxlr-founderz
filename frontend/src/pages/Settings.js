@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth, useToast } from '../contexts/AppContext';
-import { Settings as SettingsIcon, Save, Eye, EyeOff, Phone, Key, Building2, Lock, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Eye, EyeOff, Phone, Key, Building2, Lock, CheckCircle2, AlertCircle, RefreshCw, Copy, Zap } from 'lucide-react';
 
 const Settings = () => {
   const { user, api } = useAuth();
@@ -19,6 +19,9 @@ const Settings = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [stats, setStats] = useState({ total_chunks: 0 });
   const [hasToken, setHasToken] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -36,6 +39,7 @@ const Settings = () => {
           meta_verify_token: s.meta_verify_token || '',
         }));
         setHasToken(s.has_token);
+        setApiKey(s.api_key || '');
         setStats(statsRes.data);
       } catch (err) {
         console.error('Failed to load settings:', err);
@@ -68,6 +72,25 @@ const Settings = () => {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleGenerateApiKey = async () => {
+    setIsGenerating(true);
+    try {
+      const res = await api.post('/settings/generate-api-key');
+      setApiKey(res.data.api_key);
+      setShowApiKey(true);
+      success('New API key generated!');
+    } catch (err) {
+      error('Failed to generate API key');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleCopyApiKey = () => {
+    navigator.clipboard.writeText(apiKey);
+    success('API key copied to clipboard!');
   };
 
   const Field = ({ label, icon: Icon, children }) => (
@@ -189,6 +212,56 @@ const Settings = () => {
               className="w-full px-4 py-3 bg-[#0A0A0A] border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#00E599] transition-colors"
             />
           </Field>
+        </div>
+
+        {/* API Key */}
+        <div className="bg-[#111] border border-white/5 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="font-semibold text-white flex items-center gap-2">
+              <Zap className="w-4 h-4 text-[#00E599]" />
+              Integration API Key
+            </h2>
+            <button
+              type="button"
+              onClick={handleGenerateApiKey}
+              disabled={isGenerating}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs bg-[#00E599]/10 text-[#00E599] border border-[#00E599]/20 rounded-lg hover:bg-[#00E599]/20 transition-all disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3 h-3 ${isGenerating ? 'animate-spin' : ''}`} />
+              {apiKey ? 'Regenerate' : 'Generate Key'}
+            </button>
+          </div>
+          <p className="text-xs text-zinc-500 mb-4">Permanent key for n8n, Zapier, or any automation — never expires, no JWT refresh needed.</p>
+          {apiKey ? (
+            <div className="space-y-3">
+              <div className="relative">
+                <input
+                  type={showApiKey ? 'text' : 'password'}
+                  value={apiKey}
+                  readOnly
+                  className="w-full px-4 py-3 pr-20 bg-[#0A0A0A] border border-[#00E599]/20 rounded-lg text-[#00E599] font-mono text-xs focus:outline-none"
+                />
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
+                  <button type="button" onClick={() => setShowApiKey(p => !p)}
+                    className="p-1.5 text-zinc-500 hover:text-white rounded">
+                    {showApiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                  <button type="button" onClick={handleCopyApiKey}
+                    className="p-1.5 text-zinc-500 hover:text-[#00E599] rounded">
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              <div className="bg-[#0A0A0A] border border-white/5 rounded-lg p-3 space-y-1">
+                <p className="text-xs text-zinc-500 font-medium mb-2">n8n HTTP Request — Headers:</p>
+                <p className="text-xs font-mono"><span className="text-zinc-400">X-API-Key:</span> <span className="text-[#00E599]">{showApiKey ? apiKey : apiKey.slice(0,12) + '••••••'}</span></p>
+              </div>
+            </div>
+          ) : (
+            <div className="border border-dashed border-white/10 rounded-lg p-4 text-center">
+              <p className="text-sm text-zinc-500">No API key yet — click "Generate Key" to create one.</p>
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end">

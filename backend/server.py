@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query, WebSocket, WebSocketDisconnect, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -62,6 +62,7 @@ async def init_db():
         # Migrations: add new columns if they don't exist
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS meta_waba_id VARCHAR(255)")
         await conn.execute("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP")
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS api_key VARCHAR(64)")
 
         admin = await conn.fetchrow("SELECT id FROM users WHERE username = $1", 'admin')
         if not admin:
@@ -223,12 +224,30 @@ def verify_token(token: str) -> Dict[str, Any]:
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict:
-    if not credentials:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    payload = verify_token(credentials.credentials)
+async def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
+) -> Dict:
     pool = await get_db_pool()
     async with pool.acquire() as conn:
+        # 1. Try X-API-Key header first
+        if x_api_key:
+            user = await conn.fetchrow("SELECT * FROM users WHERE api_key = $1", x_api_key)
+            if not user:
+                raise HTTPException(status_code=401, detail="Invalid API key")
+            return dict(user)
+        # 2. Try Bearer token (JWT)
+        if not credentials:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        # Check if it looks like an api_key (not a JWT)
+        token = credentials.credentials
+        if not token.startswith('ey'):  # JWTs always start with 'ey'
+            user = await conn.fetchrow("SELECT * FROM users WHERE api_key = $1", token)
+            if not user:
+                raise HTTPException(status_code=401, detail="Invalid API key")
+            return dict(user)
+        # 3. Standard JWT
+        payload = verify_token(token)
         user = await conn.fetchrow("SELECT * FROM users WHERE id = $1", payload['user_id'])
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
@@ -424,7 +443,18 @@ async def get_settings(current_user: Dict = Depends(get_current_user)):
         "meta_waba_id": current_user.get('meta_waba_id') or '',
         "meta_verify_token": current_user['meta_verify_token'] or '',
         "has_token": bool(current_user['meta_access_token']),
+        "api_key": current_user.get('api_key') or '',
     }
+
+@api_router.post("/settings/generate-api-key")
+async def generate_api_key(current_user: Dict = Depends(get_current_user)):
+    """Generate (or regenerate) a permanent API key for machine-to-machine integrations."""
+    import secrets
+    new_key = 'wba_' + secrets.token_hex(28)  # 60-char key with prefix
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE users SET api_key=$1 WHERE id=$2", new_key, current_user['id'])
+    return {"api_key": new_key}
 
 # ── Super Admin — User Management ───────────────────────────
 @api_router.get("/admin/users", response_model=List[UserAdminResponse])
