@@ -553,8 +553,39 @@ async def handle_webhook(request: Request):
                 if "messages" in value:
                     for message in value["messages"]:
                         phone = message.get("from", "")
-                        text = message.get("text", {}).get("body", "")
                         meta_message_id = message.get("id", "")
+                        msg_type = message.get("type", "")
+
+                        # Extract text based on message type
+                        if msg_type == "text":
+                            text = message.get("text", {}).get("body", "")
+                        elif msg_type == "interactive":
+                            # Customer clicked a template button or selected from list
+                            interactive = message.get("interactive", {})
+                            i_type = interactive.get("type", "")
+                            if i_type == "button_reply":
+                                text = f"[زر: {interactive.get('button_reply', {}).get('title', '')}]"
+                            elif i_type == "list_reply":
+                                text = f"[قائمة: {interactive.get('list_reply', {}).get('title', '')}]"
+                            else:
+                                text = "[interactive message]"
+                        elif msg_type == "button":
+                            # Quick reply button
+                            text = f"[رد: {message.get('button', {}).get('text', '')}]"
+                        elif msg_type == "image":
+                            text = "[صورة 📷]"
+                        elif msg_type == "audio":
+                            text = "[صوت 🎵]"
+                        elif msg_type == "video":
+                            text = "[فيديو 🎬]"
+                        elif msg_type == "document":
+                            text = "[ملف 📄]"
+                        elif msg_type == "location":
+                            loc = message.get("location", {})
+                            text = f"[موقع 📍 {loc.get('name', '')}]"
+                        else:
+                            text = f"[{msg_type}]" if msg_type else ""
+
                         if not phone or not text:
                             continue
                         async with pool.acquire() as conn:
