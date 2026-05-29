@@ -714,17 +714,30 @@ async def log_outbound_message(
 
 
 # ── Chat Endpoints ───────────────────────────────────────────
-@api_router.get("/chats", response_model=List[SessionResponse])
-async def get_chats(current_user: Dict = Depends(get_current_user)):
+@api_router.get("/chats")
+async def get_chats(
+    current_user: Dict = Depends(get_current_user),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+):
     pool = await get_db_pool()
+    offset = (page - 1) * limit
     async with pool.acquire() as conn:
+        total = await conn.fetchval(
+            "SELECT COUNT(*) FROM sessions s JOIN contacts c ON s.contact_id=c.id WHERE c.user_id=$1",
+            current_user['id']
+        )
         records = await conn.fetch(
             """SELECT s.*,c.phone_number,c.name as contact_name,c.created_at as contact_created_at
                FROM sessions s JOIN contacts c ON s.contact_id=c.id
-               WHERE c.user_id=$1 ORDER BY s.updated_at DESC LIMIT 100""", current_user['id'])
+               WHERE c.user_id=$1 ORDER BY s.updated_at DESC LIMIT $2 OFFSET $3""",
+            current_user['id'], limit, offset
+        )
         result = []
         for r in records:
-            last_msg = await conn.fetchrow("SELECT * FROM messages WHERE session_id=$1 ORDER BY created_at DESC LIMIT 1", r['id'])
+            last_msg = await conn.fetchrow(
+                "SELECT * FROM messages WHERE session_id=$1 ORDER BY created_at DESC LIMIT 1", r['id']
+            )
             cr = ContactResponse(id=str(r['contact_id']),phone_number=r['phone_number'],name=r['contact_name'],created_at=str(r['contact_created_at']))
             lm = None
             if last_msg:
@@ -733,7 +746,14 @@ async def get_chats(current_user: Dict = Depends(get_current_user)):
                                      status=last_msg['status'],created_at=str(last_msg['created_at']))
             result.append(SessionResponse(id=str(r['id']),contact_id=str(r['contact_id']),is_bot_paused=r['is_bot_paused'],
                                           created_at=str(r['created_at']),updated_at=str(r['updated_at']),contact=cr,last_message=lm))
-        return result
+    return {
+        "chats": result,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "has_more": (offset + len(result)) < total
+    }
+
 
 @api_router.get("/chats/{phone}/messages", response_model=List[MessageResponse])
 async def get_chat_messages(phone: str, current_user: Dict = Depends(get_current_user)):

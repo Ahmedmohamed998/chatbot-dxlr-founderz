@@ -60,10 +60,16 @@ const Inbox = () => {
   const [newMessage, setNewMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoadingChats, setIsLoadingChats] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isTogglingAI, setIsTogglingAI] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalChats, setTotalChats] = useState(0);
+  const chatListRef = useRef(null);
+  const loadMoreRef = useRef(null);
 
   // Contact name editing state
   const [isEditingName, setIsEditingName] = useState(false);
@@ -82,16 +88,41 @@ const Inbox = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const fetchChats = useCallback(async () => {
+  const fetchChats = useCallback(async (page = 1, append = false) => {
+    if (page === 1) setIsLoadingChats(true);
+    else setIsLoadingMore(true);
     try {
-      const response = await api.get('/chats');
-      setChats(response.data);
+      const response = await api.get(`/chats?page=${page}&limit=50`);
+      const { chats: newChats, has_more, total } = response.data;
+      setChats(prev => append ? [...prev, ...newChats] : newChats);
+      setHasMore(has_more);
+      setTotalChats(total);
+      setCurrentPage(page);
     } catch (err) {
       console.error('Failed to fetch chats:', err);
     } finally {
       setIsLoadingChats(false);
+      setIsLoadingMore(false);
     }
   }, [api]);
+
+  const fetchMoreChats = useCallback(() => {
+    if (!isLoadingMore && hasMore) {
+      fetchChats(currentPage + 1, true);
+    }
+  }, [fetchChats, currentPage, hasMore, isLoadingMore]);
+
+  // Intersection Observer for infinite scroll
+  useEffect(() => {
+    const sentinel = loadMoreRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) fetchMoreChats(); },
+      { threshold: 0.1 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [fetchMoreChats]);
 
   const fetchMessages = useCallback(async (phone) => {
     setIsLoadingMessages(true);
@@ -289,7 +320,7 @@ const Inbox = () => {
           <div className="flex items-center">
             <h1 className="text-xl font-bold tracking-tight" style={{ fontFamily: 'Cabinet Grotesk' }}>Inbox</h1>
             <span className="ml-2 px-2 py-0.5 text-xs font-medium bg-[#00E599]/10 text-[#00E599] rounded-full">
-              {chats.length}
+              {totalChats || chats.length}
             </span>
           </div>
           <div
@@ -378,6 +409,24 @@ const Inbox = () => {
                   </div>
                 </button>
               ))}
+              {/* Infinite scroll sentinel */}
+              {hasMore && (
+                <div ref={loadMoreRef} className="py-4 flex items-center justify-center">
+                  {isLoadingMore ? (
+                    <div className="flex items-center gap-2 text-xs text-zinc-500">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Loading more...
+                    </div>
+                  ) : (
+                    <button
+                      onClick={fetchMoreChats}
+                      className="text-xs text-zinc-500 hover:text-[#00E599] transition-colors px-3 py-1.5 rounded-lg hover:bg-white/5"
+                    >
+                      Load more ({totalChats - chats.length} remaining)
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
