@@ -76,6 +76,8 @@ const Inbox = () => {
   const [nameInput, setNameInput] = useState('');
   const [isSavingName, setIsSavingName] = useState(false);
   const nameInputRef = useRef(null);
+  // Unread tracking (session ids that have unread messages)
+  const [unreadSessions, setUnreadSessions] = useState(new Set());
   
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -154,9 +156,33 @@ const Inbox = () => {
           const data = JSON.parse(event.data);
           if (data.type === 'new_message') {
             const msgData = data.data;
-            fetchChats();
             const currentChat = selectedChatRef.current;
-            if (currentChat && currentChat.contact?.phone_number === msgData.phone_number) {
+            const isCurrentChat = currentChat && currentChat.contact?.phone_number === msgData.phone_number;
+
+            // Smart update: move chat to top + update last_message without refetching
+            setChats(prev => {
+              const idx = prev.findIndex(c => c.contact?.phone_number === msgData.phone_number);
+              const newLastMsg = {
+                id: msgData.id, session_id: msgData.session_id,
+                direction: msgData.direction, sender_type: msgData.sender_type,
+                text: msgData.text, status: 'sent', created_at: msgData.created_at
+              };
+              if (idx === -1) {
+                // New contact not in list yet — do a background refresh without touching scroll
+                fetchChats(1, false);
+                return prev;
+              }
+              const updated = { ...prev[idx], last_message: newLastMsg };
+              return [updated, ...prev.filter((_, i) => i !== idx)];
+            });
+
+            // Mark as unread if not the currently open chat
+            if (!isCurrentChat) {
+              setUnreadSessions(prev => new Set([...prev, msgData.session_id]));
+            }
+
+            // Append message to open chat
+            if (isCurrentChat) {
               setMessages(prev => {
                 if (prev.some(m => m.id === msgData.id)) return prev;
                 return [...prev, {
@@ -200,6 +226,12 @@ const Inbox = () => {
     setSelectedChat(chat);
     setMessages([]);
     setIsEditingName(false);
+    // Mark as read
+    setUnreadSessions(prev => {
+      const next = new Set(prev);
+      next.delete(chat.id);
+      return next;
+    });
     inputRef.current?.focus();
   };
 
@@ -367,25 +399,30 @@ const Inbox = () => {
                   onClick={() => handleSelectChat(chat)}
                   data-testid={`contact-item-${chat.contact?.phone_number}`}
                   className={`w-full px-4 py-3 flex items-start gap-3 hover:bg-white/5 transition-colors text-left ${
-                    selectedChat?.id === chat.id ? 'bg-white/5' : ''
+                    selectedChat?.id === chat.id ? 'bg-white/5 border-l-2 border-[#00E599]' : 'border-l-2 border-transparent'
                   }`}
                 >
                   <ContactAvatar name={chat.contact?.name} phone={chat.contact?.phone_number} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="font-medium truncate">
+                        <span className={`font-medium truncate ${unreadSessions.has(chat.id) ? 'text-white' : 'text-zinc-300'}`}>
                           {contactHasCustomName(chat) ? chat.contact.name : chat.contact?.phone_number}
                         </span>
                         {contactHasCustomName(chat) && (
                           <UserCheck className="w-3 h-3 text-[#00E599] flex-shrink-0" />
                         )}
                       </div>
-                      {chat.last_message && (
-                        <span className="text-xs text-zinc-500 ml-2 flex-shrink-0">
-                          {formatTime(chat.last_message.created_at)}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                        {unreadSessions.has(chat.id) && (
+                          <span className="w-2 h-2 rounded-full bg-[#00E599] flex-shrink-0" />
+                        )}
+                        {chat.last_message && (
+                          <span className="text-xs text-zinc-500">
+                            {formatTime(chat.last_message.created_at)}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     {contactHasCustomName(chat) && (
                       <p className="text-xs text-zinc-600 font-mono mb-0.5">{chat.contact.phone_number}</p>

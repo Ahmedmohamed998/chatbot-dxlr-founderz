@@ -775,8 +775,9 @@ async def send_message(phone: str, request: SendMessageRequest, current_user: Di
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         contact = await conn.fetchrow(
-            "INSERT INTO contacts (user_id,phone_number,name) VALUES ($1,$2,$2) ON CONFLICT (user_id,phone_number) DO UPDATE SET name=EXCLUDED.name RETURNING id",
+            "INSERT INTO contacts (user_id,phone_number,name) VALUES ($1,$2,$2) ON CONFLICT (user_id,phone_number) DO UPDATE SET updated_at=CURRENT_TIMESTAMP RETURNING id",
             current_user['id'], phone)
+
         session = await conn.fetchrow("SELECT id FROM sessions WHERE contact_id=$1", contact['id'])
         if not session:
             session = await conn.fetchrow("INSERT INTO sessions (contact_id,is_bot_paused) VALUES ($1,TRUE) RETURNING id", contact['id'])
