@@ -33,7 +33,7 @@ const StatusBadge = ({ status, error }) => {
 };
 
 const TEMPLATE_OPTIONS = [
-  { value: 'order_confirmation', label: 'order_confirmation (ar_EG)' },
+  { value: 'order_conf', label: 'order_conf (ar_EG)' },
 ];
 
 const OrderConfirmations = () => {
@@ -43,7 +43,7 @@ const OrderConfirmations = () => {
   const [rows, setRows] = useState([
     { id: 1, phone: '', order_number: '', status: 'idle', error: null, contact_name: null }
   ]);
-  const [template, setTemplate] = useState('order_confirmation');
+  const [template, setTemplate] = useState('order_conf');
   const [isSending, setIsSending] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState('');

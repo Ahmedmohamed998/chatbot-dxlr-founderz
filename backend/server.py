@@ -180,7 +180,7 @@ class OrderConfirmationItem(BaseModel):
 
 class BulkOrderConfirmationRequest(BaseModel):
     items: List[OrderConfirmationItem]
-    template_name: str = "order_confirmation"
+    template_name: str = "order_conf"
 
 class TemplateResponse(BaseModel):
     id: str
