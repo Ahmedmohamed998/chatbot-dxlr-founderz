@@ -375,8 +375,9 @@ const Inbox = () => {
   };
 
   return (
-    <div className="h-screen flex" data-testid="inbox-page">
-      {/* Chat List Panel */}
+    <>
+      <div className="h-screen flex" data-testid="inbox-page">
+        {/* Chat List Panel */}
       <div className="w-[350px] border-r border-white/5 flex flex-col bg-[#0A0A0A]">
         {/* Header */}
         <div className="h-16 px-4 flex items-center justify-between border-b border-white/5">
@@ -762,6 +763,7 @@ const Inbox = () => {
         />
       </div>
     )}
+    </>
   );
 };
 
