@@ -1,4 +1,5 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query, WebSocket, WebSocketDisconnect, Header
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query, WebSocket, WebSocketDisconnect, Header, UploadFile, File, Form
+from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -65,6 +66,8 @@ async def init_db():
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS api_key VARCHAR(64)")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS shopify_store_url VARCHAR(255)")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS shopify_api_token VARCHAR(255)")
+        await conn.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_url VARCHAR(255)")
+        await conn.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_type VARCHAR(50)")
 
         admin = await conn.fetchrow("SELECT id FROM users WHERE username = $1", 'admin')
         if not admin:
@@ -88,6 +91,12 @@ async def lifespan(app: FastAPI):
         await db_pool.close()
 
 app = FastAPI(lifespan=lifespan)
+
+# Setup local media storage
+MEDIA_DIR = Path("data/media")
+MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/media", StaticFiles(directory="data/media"), name="media")
+
 api_router = APIRouter(prefix="/api")
 security = HTTPBearer(auto_error=False)
 
@@ -149,6 +158,8 @@ class MessageResponse(BaseModel):
     meta_message_id: Optional[str]
     status: Optional[str]
     created_at: str
+    media_url: Optional[str] = None
+    media_type: Optional[str] = None
 
 class SessionResponse(BaseModel):
     id: str
@@ -316,7 +327,7 @@ async def search_similar_chunks(query_embedding: List[float], user_id: int, limi
 
 async def send_whatsapp_message(phone: str, text: str, access_token: str, phone_number_id: str) -> Optional[str]:
     if not access_token or not phone_number_id:
-        return f"wamid.simulated_{uuid.uuid4().hex[:12]}"
+        return f"wamid.{uuid.uuid4().hex[:15]}"
     url = f"https://graph.facebook.com/v18.0/{phone_number_id}/messages"
     headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
     payload = {"messaging_product": "whatsapp", "to": phone, "type": "text", "text": {"body": text}}
@@ -327,6 +338,48 @@ async def send_whatsapp_message(phone: str, text: str, access_token: str, phone_
                 return response.json().get("messages", [{}])[0].get("id")
         return None
     except Exception:
+        return None
+
+async def send_whatsapp_media_message(phone: str, media_type: str, file_bytes: bytes, mime_type: str, filename: str, access_token: str, phone_number_id: str) -> Optional[str]:
+    """Upload media to Meta and send it as a message."""
+    if not access_token or not phone_number_id:
+        return f"wamid.{uuid.uuid4().hex[:15]}"
+    
+    upload_url = f"https://graph.facebook.com/v18.0/{phone_number_id}/media"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # 1. Upload media
+            files = {'file': (filename, file_bytes, mime_type)}
+            data = {'messaging_product': 'whatsapp'}
+            upload_res = await client.post(upload_url, headers=headers, data=data, files=files)
+            if upload_res.status_code != 200:
+                logger.error(f"Meta media upload failed: {upload_res.text}")
+                return None
+            
+            meta_media_id = upload_res.json().get("id")
+            if not meta_media_id: return None
+
+            # 2. Send media message
+            msg_url = f"https://graph.facebook.com/v18.0/{phone_number_id}/messages"
+            msg_payload = {
+                "messaging_product": "whatsapp",
+                "to": phone,
+                "type": media_type,
+                media_type: {"id": meta_media_id}
+            }
+            if media_type == 'document':
+                msg_payload[media_type]["filename"] = filename
+
+            send_res = await client.post(msg_url, json=msg_payload, headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"})
+            if send_res.status_code == 200:
+                return send_res.json().get("messages", [{}])[0].get("id")
+            else:
+                logger.error(f"Meta media send failed: {send_res.text}")
+                return None
+    except Exception as e:
+        logger.error(f"Error sending media message: {e}")
         return None
 
 async def send_whatsapp_template(phone: str, template_name: str, language: str, access_token: str, phone_number_id: str) -> Optional[str]:
@@ -396,6 +449,45 @@ async def fetch_shopify_order(order_number: str, store_url: str, api_token: str)
     except Exception as e:
         logger.error(f"Shopify fetch error: {e}")
     return None
+
+async def download_meta_media(media_id: str, access_token: str, media_type: str) -> Optional[str]:
+    """Download media from Meta and return the local URL path."""
+    if not media_id or not access_token: return None
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            headers = {"Authorization": f"Bearer {access_token}"}
+            # 1. Get media URL
+            res = await client.get(f"https://graph.facebook.com/v18.0/{media_id}", headers=headers)
+            if res.status_code != 200:
+                logger.error(f"Failed to get media url: {res.text}")
+                return None
+            media_info = res.json()
+            download_url = media_info.get("url")
+            mime_type = media_info.get("mime_type", "")
+            
+            if not download_url: return None
+
+            # 2. Download binary data
+            res_bin = await client.get(download_url, headers=headers)
+            if res_bin.status_code != 200:
+                logger.error("Failed to download media binary")
+                return None
+            
+            # Determine extension
+            ext = ""
+            if "jpeg" in mime_type or "jpg" in mime_type: ext = ".jpg"
+            elif "png" in mime_type: ext = ".png"
+            elif "mp4" in mime_type: ext = ".mp4"
+            elif "ogg" in mime_type: ext = ".ogg"
+            elif "pdf" in mime_type: ext = ".pdf"
+            
+            filename = f"{media_type}_{media_id}{ext}"
+            filepath = MEDIA_DIR / filename
+            filepath.write_bytes(res_bin.content)
+            return f"/media/{filename}"
+    except Exception as e:
+        logger.error(f"Error downloading media: {e}")
+        return None
 
 async def generate_ai_response(phone_number: str, incoming_message: str, message_history: List[Dict], user_id: int) -> str:
     try:
@@ -627,6 +719,9 @@ async def handle_webhook(request: Request):
                         meta_message_id = message.get("id", "")
                         msg_type = message.get("type", "")
 
+                        media_url = None
+                        media_type = None
+
                         # Extract text based on message type
                         if msg_type == "text":
                             text = message.get("text", {}).get("body", "")
@@ -643,21 +738,22 @@ async def handle_webhook(request: Request):
                         elif msg_type == "button":
                             # Quick reply button
                             text = f"[رد: {message.get('button', {}).get('text', '')}]"
-                        elif msg_type == "image":
-                            text = "[صورة 📷]"
-                        elif msg_type == "audio":
-                            text = "[صوت 🎵]"
-                        elif msg_type == "video":
-                            text = "[فيديو 🎬]"
-                        elif msg_type == "document":
-                            text = "[ملف 📄]"
+                        elif msg_type in ["image", "audio", "video", "document"]:
+                            media_id = message.get(msg_type, {}).get("id")
+                            if media_id:
+                                media_type = msg_type
+                                media_url = await download_meta_media(media_id, tenant['meta_access_token'], msg_type)
+                            if msg_type == "image": text = "[صورة 📷]"
+                            elif msg_type == "audio": text = "[صوت 🎵]"
+                            elif msg_type == "video": text = "[فيديو 🎬]"
+                            elif msg_type == "document": text = "[ملف 📄]"
                         elif msg_type == "location":
                             loc = message.get("location", {})
                             text = f"[موقع 📍 {loc.get('name', '')}]"
                         else:
                             text = f"[{msg_type}]" if msg_type else ""
 
-                        if not phone or not text:
+                        if not phone or (not text and not media_url):
                             continue
                         async with pool.acquire() as conn:
                             contact = await conn.fetchrow(
@@ -673,12 +769,13 @@ async def handle_webhook(request: Request):
                                 session = await conn.fetchrow(
                                     "UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING *", session['id'])
                             msg_id = await conn.fetchval(
-                                """INSERT INTO messages (session_id,direction,sender_type,text,meta_message_id,status)
-                                   VALUES ($1,'INBOUND','CUSTOMER',$2,$3,'received') RETURNING id""",
-                                session['id'], text, meta_message_id)
+                                """INSERT INTO messages (session_id,direction,sender_type,text,meta_message_id,status,media_url,media_type)
+                                   VALUES ($1,'INBOUND','CUSTOMER',$2,$3,'received',$4,$5) RETURNING id""",
+                                session['id'], text or '', meta_message_id, media_url, media_type)
                         await ws_manager.broadcast({"type":"new_message","user_id":tenant_id,
                             "data":{"id":str(msg_id),"session_id":str(session['id']),"phone_number":phone,
-                                    "direction":"INBOUND","sender_type":"CUSTOMER","text":text,
+                                    "direction":"INBOUND","sender_type":"CUSTOMER","text":text or '',
+                                    "media_url": media_url, "media_type": media_type,
                                     "created_at":datetime.now(timezone.utc).isoformat()}})
                         if not session.get('is_bot_paused', False):
                             async with pool.acquire() as conn:
@@ -839,7 +936,60 @@ async def get_chat_messages(phone: str, current_user: Dict = Depends(get_current
         msgs = await conn.fetch("SELECT * FROM messages WHERE session_id=$1 ORDER BY created_at ASC LIMIT 1000", session['id'])
         return [MessageResponse(id=str(m['id']),session_id=str(m['session_id']),direction=m['direction'],
                                 sender_type=m['sender_type'],text=m['text'],meta_message_id=m['meta_message_id'],
-                                status=m['status'],created_at=str(m['created_at'])) for m in msgs]
+                                status=m['status'],created_at=str(m['created_at']),
+                                media_url=m.get('media_url'), media_type=m.get('media_type')) for m in msgs]
+
+@api_router.post("/chats/{phone}/send-media", response_model=MessageResponse)
+async def send_media(phone: str, file: UploadFile = File(...), current_user: Dict = Depends(get_current_user)):
+    file_bytes = await file.read()
+    mime_type = file.content_type
+    
+    media_type = "document"
+    ext = ".bin"
+    if mime_type.startswith("image/"):
+        media_type = "image"
+        ext = ".jpg" if "jpeg" in mime_type else ".png"
+    elif mime_type.startswith("audio/"):
+        media_type = "audio"
+        ext = ".ogg"
+    elif mime_type.startswith("video/"):
+        media_type = "video"
+        ext = ".mp4"
+    elif "pdf" in mime_type:
+        ext = ".pdf"
+    
+    filename = f"out_{uuid.uuid4().hex[:8]}{ext}"
+    filepath = MEDIA_DIR / filename
+    filepath.write_bytes(file_bytes)
+    local_url = f"/media/{filename}"
+
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        contact = await conn.fetchrow(
+            "INSERT INTO contacts (user_id,phone_number,name) VALUES ($1,$2,$2) ON CONFLICT (user_id,phone_number) DO UPDATE SET updated_at=CURRENT_TIMESTAMP RETURNING id",
+            current_user['id'], phone)
+
+        session = await conn.fetchrow("SELECT id FROM sessions WHERE contact_id=$1", contact['id'])
+        if not session:
+            session = await conn.fetchrow("INSERT INTO sessions (contact_id,is_bot_paused) VALUES ($1,TRUE) RETURNING id", contact['id'])
+        else:
+            session = await conn.fetchrow("UPDATE sessions SET is_bot_paused=TRUE,updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING id", session['id'])
+        
+        wa_id = await send_whatsapp_media_message(phone, media_type, file_bytes, mime_type, file.filename or filename, current_user['meta_access_token'], current_user['meta_phone_number_id'])
+        msg_id, msg_created_at = await conn.fetchrow(
+            """INSERT INTO messages (session_id,direction,sender_type,text,meta_message_id,status,media_url,media_type) 
+               VALUES ($1,'OUTBOUND','ADMIN','',$2,'sent',$3,$4) RETURNING id,created_at""",
+            session['id'], wa_id, local_url, media_type)
+        
+    await ws_manager.broadcast({"type":"new_message","user_id":current_user['id'],
+        "data":{"id":str(msg_id),"session_id":str(session['id']),"phone_number":phone,
+                "direction":"OUTBOUND","sender_type":"ADMIN","text":"",
+                "media_url": local_url, "media_type": media_type,
+                "created_at":str(msg_created_at)}})
+    
+    return MessageResponse(id=str(msg_id),session_id=str(session['id']),direction='OUTBOUND',
+                           sender_type='ADMIN',text="",meta_message_id=wa_id,status='sent',created_at=str(msg_created_at),
+                           media_url=local_url, media_type=media_type)
 
 @api_router.post("/chats/{phone}/send", response_model=MessageResponse)
 async def send_message(phone: str, request: SendMessageRequest, current_user: Dict = Depends(get_current_user)):

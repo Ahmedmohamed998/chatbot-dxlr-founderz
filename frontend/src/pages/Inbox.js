@@ -3,7 +3,7 @@ import { useAuth, useToast } from '../contexts/AppContext';
 import { 
   MessageSquare, Send, Bot, User, UserCog, Search, 
   Phone, Clock, MoreVertical, Sparkles, Loader2, Wifi, WifiOff,
-  Pencil, Check, X, UserCheck
+  Pencil, Check, X, UserCheck, Paperclip, FileText, Download
 } from 'lucide-react';
 import { Switch } from '../components/ui/switch';
 
@@ -81,6 +81,7 @@ const Inbox = () => {
   
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const fileInputRef = useRef(null);
   const wsRef = useRef(null);
   const selectedChatRef = useRef(null);
   
@@ -165,7 +166,8 @@ const Inbox = () => {
               const newLastMsg = {
                 id: msgData.id, session_id: msgData.session_id,
                 direction: msgData.direction, sender_type: msgData.sender_type,
-                text: msgData.text, status: 'sent', created_at: msgData.created_at
+                text: msgData.text, status: 'sent', created_at: msgData.created_at,
+                media_url: msgData.media_url, media_type: msgData.media_type
               };
               if (idx === -1) {
                 // New contact not in list yet — do a background refresh without touching scroll
@@ -188,7 +190,8 @@ const Inbox = () => {
                 return [...prev, {
                   id: msgData.id, session_id: msgData.session_id,
                   direction: msgData.direction, sender_type: msgData.sender_type,
-                  text: msgData.text, status: 'sent', created_at: msgData.created_at
+                  text: msgData.text, status: 'sent', created_at: msgData.created_at,
+                  media_url: msgData.media_url, media_type: msgData.media_type
                 }];
               });
             }
@@ -233,6 +236,33 @@ const Inbox = () => {
       return next;
     });
     inputRef.current?.focus();
+  };
+
+  const handleSendMedia = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedChat || isSending) return;
+    
+    // Check file size limit (e.g. 16MB Meta limit for most media)
+    if (file.size > 16 * 1024 * 1024) {
+      error('File is too large (max 16MB)');
+      return;
+    }
+
+    setIsSending(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      await api.post(`/chats/${selectedChat.contact.phone_number}/send-media`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      success('Media sent');
+    } catch (err) {
+      error('Failed to send media');
+    } finally {
+      setIsSending(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const handleSendMessage = async (e) => {
@@ -586,7 +616,36 @@ const Inbox = () => {
                           </span>
                           <span className="text-xs opacity-50">{formatTime(message.created_at)}</span>
                         </div>
-                        <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.text}</p>
+                        
+                        {/* Media Rendering */}
+                        {message.media_url && (
+                          <div className="mb-2 mt-1 rounded-lg overflow-hidden border border-white/10 bg-black/20">
+                            {message.media_type === 'image' && (
+                              <img src={`${BACKEND_URL}${message.media_url}`} alt="Attached media" className="max-w-full h-auto max-h-64 object-contain" />
+                            )}
+                            {message.media_type === 'audio' && (
+                              <audio controls src={`${BACKEND_URL}${message.media_url}`} className="w-full h-10 custom-audio" />
+                            )}
+                            {message.media_type === 'video' && (
+                              <video controls src={`${BACKEND_URL}${message.media_url}`} className="max-w-full h-auto max-h-64" />
+                            )}
+                            {message.media_type === 'document' && (
+                              <a href={`${BACKEND_URL}${message.media_url}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 hover:bg-white/5 transition-colors">
+                                <FileText className="w-8 h-8 text-blue-400" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium text-blue-400 truncate">Document</p>
+                                  <p className="text-xs text-zinc-500">Click to view/download</p>
+                                </div>
+                                <Download className="w-4 h-4 text-zinc-400" />
+                              </a>
+                            )}
+                          </div>
+                        )}
+
+                        {message.text && (
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{message.text}</p>
+                        )}
+                        
                         {message.status && message.direction === 'OUTBOUND' && (
                           <div className="flex items-center justify-end gap-1 mt-1">
                             <Clock className="w-3 h-3 opacity-50" />
@@ -604,6 +663,22 @@ const Inbox = () => {
             {/* Message Input */}
             <div className="p-4 border-t border-white/5 bg-black/40 backdrop-blur-xl">
               <form onSubmit={handleSendMessage} className="flex items-center gap-3">
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  className="hidden" 
+                  onChange={handleSendMedia}
+                  accept="image/*,audio/*,video/*,.pdf,.doc,.docx"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isSending}
+                  className="p-3 text-zinc-400 hover:text-[#00E599] hover:bg-[#00E599]/10 rounded-xl transition-all disabled:opacity-50"
+                  title="Attach media"
+                >
+                  <Paperclip className="w-5 h-5" />
+                </button>
                 <input
                   ref={inputRef}
                   type="text"
