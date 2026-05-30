@@ -764,7 +764,7 @@ async def handle_webhook(request: Request):
                             session = await conn.fetchrow("SELECT * FROM sessions WHERE contact_id=$1", contact['id'])
                             if not session:
                                 session = await conn.fetchrow(
-                                    "INSERT INTO sessions (contact_id,is_bot_paused) VALUES ($1,FALSE) RETURNING *", contact['id'])
+                                    "INSERT INTO sessions (contact_id,is_bot_paused) VALUES ($1,TRUE) RETURNING *", contact['id'])
                             else:
                                 session = await conn.fetchrow(
                                     "UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING *", session['id'])

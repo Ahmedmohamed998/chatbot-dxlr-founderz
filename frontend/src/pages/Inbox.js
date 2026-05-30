@@ -3,7 +3,7 @@ import { useAuth, useToast } from '../contexts/AppContext';
 import { 
   MessageSquare, Send, Bot, User, UserCog, Search, 
   Phone, Clock, MoreVertical, Sparkles, Loader2, Wifi, WifiOff,
-  Pencil, Check, X, UserCheck, Paperclip, FileText, Download
+  Pencil, Check, X, UserCheck, Paperclip, FileText, Download, ZoomIn, Volume2, Mic
 } from 'lucide-react';
 import { Switch } from '../components/ui/switch';
 
@@ -78,6 +78,7 @@ const Inbox = () => {
   const nameInputRef = useRef(null);
   // Unread tracking (session ids that have unread messages)
   const [unreadSessions, setUnreadSessions] = useState(new Set());
+  const [lightboxImage, setLightboxImage] = useState(null);
   
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -619,24 +620,49 @@ const Inbox = () => {
                         
                         {/* Media Rendering */}
                         {message.media_url && (
-                          <div className="mb-2 mt-1 rounded-lg overflow-hidden border border-white/10 bg-black/20">
+                          <div className="mb-2 mt-1">
                             {message.media_type === 'image' && (
-                              <img src={`${BACKEND_URL}${message.media_url}`} alt="Attached media" className="max-w-full h-auto max-h-64 object-contain" />
+                              <div
+                                className="relative group cursor-zoom-in rounded-xl overflow-hidden border border-white/10 bg-black/30"
+                                onClick={() => setLightboxImage(`${BACKEND_URL}${message.media_url}`)}
+                              >
+                                <img
+                                  src={`${BACKEND_URL}${message.media_url}`}
+                                  alt="Attached"
+                                  className="max-w-full h-auto max-h-64 object-cover w-full block"
+                                />
+                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center">
+                                  <ZoomIn className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
+                                </div>
+                              </div>
                             )}
                             {message.media_type === 'audio' && (
-                              <audio controls src={`${BACKEND_URL}${message.media_url}`} className="w-full h-10 custom-audio" />
+                              <div className="flex items-center gap-3 px-3 py-2 bg-black/30 rounded-xl border border-white/10 min-w-[220px]">
+                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#00E599]/10 border border-[#00E599]/30 flex items-center justify-center">
+                                  <Mic className="w-4 h-4 text-[#00E599]" />
+                                </div>
+                                <audio
+                                  controls
+                                  src={`${BACKEND_URL}${message.media_url}`}
+                                  className="flex-1 h-8"
+                                  style={{ minWidth: 0 }}
+                                />
+                              </div>
                             )}
                             {message.media_type === 'video' && (
-                              <video controls src={`${BACKEND_URL}${message.media_url}`} className="max-w-full h-auto max-h-64" />
+                              <div className="rounded-xl overflow-hidden border border-white/10 bg-black/30">
+                                <video controls src={`${BACKEND_URL}${message.media_url}`} className="max-w-full h-auto max-h-72 w-full" />
+                              </div>
                             )}
                             {message.media_type === 'document' && (
-                              <a href={`${BACKEND_URL}${message.media_url}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-3 hover:bg-white/5 transition-colors">
-                                <FileText className="w-8 h-8 text-blue-400" />
+                              <a href={`${BACKEND_URL}${message.media_url}`} target="_blank" rel="noreferrer"
+                                className="flex items-center gap-3 px-3 py-2.5 bg-black/30 rounded-xl border border-white/10 hover:border-blue-400/30 hover:bg-blue-400/5 transition-all">
+                                <FileText className="w-8 h-8 text-blue-400 flex-shrink-0" />
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm font-medium text-blue-400 truncate">Document</p>
-                                  <p className="text-xs text-zinc-500">Click to view/download</p>
+                                  <p className="text-xs text-zinc-500">Tap to open</p>
                                 </div>
-                                <Download className="w-4 h-4 text-zinc-400" />
+                                <Download className="w-4 h-4 text-zinc-400 flex-shrink-0" />
                               </a>
                             )}
                           </div>
@@ -715,6 +741,27 @@ const Inbox = () => {
         )}
       </div>
     </div>
+
+    {/* Lightbox */}
+    {lightboxImage && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm"
+        onClick={() => setLightboxImage(null)}
+      >
+        <button
+          onClick={() => setLightboxImage(null)}
+          className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+        >
+          <X className="w-6 h-6 text-white" />
+        </button>
+        <img
+          src={lightboxImage}
+          alt="Full size"
+          className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+    )}
   );
 };
 
