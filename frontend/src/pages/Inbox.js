@@ -305,8 +305,10 @@ const Inbox = () => {
   const stopRecordingAndSend = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/ogg; codecs=opus' });
-        const audioFile = new File([audioBlob], `voice_note_${Date.now()}.ogg`, { type: 'audio/ogg' });
+        const mimeType = mediaRecorderRef.current.mimeType || 'audio/webm';
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        const extension = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('webm') ? 'webm' : 'ogg';
+        const audioFile = new File([audioBlob], `voice_note_${Date.now()}.${extension}`, { type: mimeType });
         await uploadFile(audioFile);
         
         // Cleanup stream

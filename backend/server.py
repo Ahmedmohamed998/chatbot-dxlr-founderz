@@ -3,7 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-import os, logging, json, asyncio, uuid
+import os, logging, json, asyncio, uuid, shutil, subprocess
 from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -962,6 +962,26 @@ async def send_media(phone: str, file: UploadFile = File(...), current_user: Dic
     filepath = MEDIA_DIR / filename
     filepath.write_bytes(file_bytes)
     local_url = f"/api/media/{filename}"
+
+    # WhatsApp requires audio to be OGG Opus or MP4 AAC. Browsers often record WebM.
+    # Convert audio to OGG Opus using FFMPEG if available.
+    if media_type == "audio" and shutil.which("ffmpeg"):
+        opus_filename = f"opus_{uuid.uuid4().hex[:8]}.ogg"
+        opus_filepath = MEDIA_DIR / opus_filename
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", str(filepath), "-c:a", "libopus", "-b:a", "32k", str(opus_filepath)],
+                check=True, capture_output=True
+            )
+            # FFMPEG succeeded, use the transcoded file
+            file_bytes = opus_filepath.read_bytes()
+            mime_type = "audio/ogg"
+            filename = opus_filename
+            local_url = f"/api/media/{filename}"
+            logger.info(f"Successfully transcoded audio to {filename}")
+        except Exception as e:
+            logger.error(f"FFMPEG conversion failed: {e}")
+            # Fall back to original file if conversion fails
 
     pool = await get_db_pool()
     async with pool.acquire() as conn:

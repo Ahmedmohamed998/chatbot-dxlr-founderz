@@ -2,8 +2,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies including build tools for any asyncpg/compilation needed
-RUN apt-get update && apt-get install -y gcc g++ libffi-dev \
+# Install dependencies including build tools and ffmpeg for audio transcoding
+RUN apt-get update && apt-get install -y gcc g++ libffi-dev ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
