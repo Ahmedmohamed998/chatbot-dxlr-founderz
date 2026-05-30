@@ -3,7 +3,7 @@ import { useAuth, useToast } from '../contexts/AppContext';
 import { 
   MessageSquare, Send, Bot, User, UserCog, Search, 
   Phone, Clock, MoreVertical, Sparkles, Loader2, Wifi, WifiOff,
-  Pencil, Check, X, UserCheck, Paperclip, FileText, Download, ZoomIn, Volume2, Mic
+  Pencil, Check, X, UserCheck, Paperclip, FileText, Download, ZoomIn, Volume2, Mic, Square, Trash2
 } from 'lucide-react';
 import { Switch } from '../components/ui/switch';
 
@@ -79,6 +79,13 @@ const Inbox = () => {
   // Unread tracking (session ids that have unread messages)
   const [unreadSessions, setUnreadSessions] = useState(new Set());
   const [lightboxImage, setLightboxImage] = useState(null);
+
+  // Audio Recording State
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const timerIntervalRef = useRef(null);
   
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -239,8 +246,7 @@ const Inbox = () => {
     inputRef.current?.focus();
   };
 
-  const handleSendMedia = async (e) => {
-    const file = e.target.files?.[0];
+  const uploadFile = async (file) => {
     if (!file || !selectedChat || isSending) return;
     
     // Check file size limit (e.g. 16MB Meta limit for most media)
@@ -264,6 +270,74 @@ const Inbox = () => {
       setIsSending(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const handleSendMedia = async (e) => {
+    const file = e.target.files?.[0];
+    if (file) uploadFile(file);
+  };
+
+  // Voice Recording Functions
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+
+      timerIntervalRef.current = setInterval(() => {
+        setRecordingTime((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error('Microphone access denied or error:', err);
+      error('Microphone access denied');
+    }
+  };
+
+  const stopRecordingAndSend = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/ogg; codecs=opus' });
+        const audioFile = new File([audioBlob], `voice_note_${Date.now()}.ogg`, { type: 'audio/ogg' });
+        await uploadFile(audioFile);
+        
+        // Cleanup stream
+        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      };
+      
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      clearInterval(timerIntervalRef.current);
+      setRecordingTime(0);
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.onstop = () => {
+        // Cleanup stream without saving
+        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      };
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      clearInterval(timerIntervalRef.current);
+      setRecordingTime(0);
+      audioChunksRef.current = [];
+    }
+  };
+
+  const formatRecordingTime = (seconds) => {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
   };
 
   const handleSendMessage = async (e) => {
@@ -689,42 +763,79 @@ const Inbox = () => {
 
             {/* Message Input */}
             <div className="p-4 border-t border-white/5 bg-black/40 backdrop-blur-xl">
-              <form onSubmit={handleSendMessage} className="flex items-center gap-3">
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  className="hidden" 
-                  onChange={handleSendMedia}
-                  accept="image/*,audio/*,video/*,.pdf,.doc,.docx"
-                />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isSending}
-                  className="p-3 text-zinc-400 hover:text-[#00E599] hover:bg-[#00E599]/10 rounded-xl transition-all disabled:opacity-50"
-                  title="Attach media"
-                >
-                  <Paperclip className="w-5 h-5" />
-                </button>
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  placeholder="Type your message..."
-                  data-testid="message-input"
-                  className="flex-1 px-4 py-3 bg-[#111] border border-white/5 rounded-xl focus:border-[#00E599] focus:ring-1 focus:ring-[#00E599]"
-                  disabled={isSending}
-                />
-                <button
-                  type="submit"
-                  data-testid="send-message-button"
-                  disabled={!newMessage.trim() || isSending}
-                  className="p-3 bg-[#00E599] hover:bg-[#00CC88] text-black rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-                </button>
-              </form>
+              {isRecording ? (
+                <div className="flex items-center gap-4 bg-[#111] border border-[#ff4444]/30 rounded-xl px-4 py-2">
+                  <div className="flex items-center gap-2 text-[#ff4444] flex-1">
+                    <div className="w-2.5 h-2.5 rounded-full bg-[#ff4444] animate-pulse" />
+                    <span className="font-medium font-mono text-lg">{formatRecordingTime(recordingTime)}</span>
+                  </div>
+                  
+                  <button
+                    onClick={cancelRecording}
+                    className="p-2 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors flex items-center gap-2"
+                    title="Cancel recording"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                  
+                  <button
+                    onClick={stopRecordingAndSend}
+                    className="px-4 py-2 bg-[#00E599] hover:bg-[#00CC88] text-black font-medium rounded-lg flex items-center gap-2 transition-colors"
+                  >
+                    <Send className="w-4 h-4" />
+                    Send
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+                  <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    className="hidden" 
+                    onChange={handleSendMedia}
+                    accept="image/*,audio/*,video/*,.pdf,.doc,.docx"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isSending}
+                    className="p-3 text-zinc-400 hover:text-[#00E599] hover:bg-[#00E599]/10 rounded-xl transition-all disabled:opacity-50"
+                    title="Attach file"
+                  >
+                    <Paperclip className="w-5 h-5" />
+                  </button>
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    placeholder="Type your message..."
+                    data-testid="message-input"
+                    className="flex-1 px-4 py-3 bg-[#111] border border-white/5 rounded-xl focus:border-[#00E599] focus:ring-1 focus:ring-[#00E599]"
+                    disabled={isSending}
+                  />
+                  {newMessage.trim() ? (
+                    <button
+                      type="submit"
+                      data-testid="send-message-button"
+                      disabled={isSending}
+                      className="p-3 bg-[#00E599] hover:bg-[#00CC88] text-black rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={startRecording}
+                      disabled={isSending}
+                      className="p-3 bg-[#111] border border-white/5 text-[#00E599] hover:bg-[#00E599]/10 rounded-xl transition-all disabled:opacity-50"
+                      title="Record Voice Note"
+                    >
+                      <Mic className="w-5 h-5" />
+                    </button>
+                  )}
+                </form>
+              )}
             </div>
           </>
         ) : (
