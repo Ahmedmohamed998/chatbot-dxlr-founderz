@@ -63,6 +63,7 @@ async def init_db():
         # Migrations: add new columns if they don't exist
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS meta_waba_id VARCHAR(255)")
         await conn.execute("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP")
+        await conn.execute("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS api_key VARCHAR(64)")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS shopify_store_url VARCHAR(255)")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS shopify_api_token VARCHAR(255)")
@@ -450,6 +451,48 @@ async def fetch_shopify_order(order_number: str, store_url: str, api_token: str)
         logger.error(f"Shopify fetch error: {e}")
     return None
 
+async def update_shopify_order_tags(order_id: int, new_tag: str, store_url: str, api_token: str) -> bool:
+    """Update a Shopify order's tags by appending a new tag if not already present."""
+    base = store_url.rstrip('/')
+    headers = {"X-Shopify-Access-Token": api_token, "Content-Type": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            # First, fetch existing tags
+            resp = await client.get(
+                f"{base}/admin/api/2024-01/orders/{order_id}.json",
+                headers=headers
+            )
+            if resp.status_code != 200:
+                logger.error(f"Failed to fetch order {order_id} for tagging: {resp.text}")
+                return False
+                
+            order = resp.json().get("order", {})
+            current_tags = order.get("tags", "")
+            
+            # Check if tag already exists
+            tags_list = [t.strip() for t in current_tags.split(",")] if current_tags else []
+            if new_tag in tags_list:
+                return True # Already tagged
+                
+            tags_list.append(new_tag)
+            updated_tags = ", ".join(tags_list)
+            
+            # Update the order
+            update_resp = await client.put(
+                f"{base}/admin/api/2024-01/orders/{order_id}.json",
+                json={"order": {"id": order_id, "tags": updated_tags}},
+                headers=headers
+            )
+            if update_resp.status_code == 200:
+                logger.info(f"Successfully tagged Shopify order {order_id} with {new_tag}")
+                return True
+            else:
+                logger.error(f"Failed to update tags for order {order_id}: {update_resp.text}")
+                return False
+    except Exception as e:
+        logger.error(f"Shopify tagging error: {e}")
+        return False
+
 async def download_meta_media(media_id: str, access_token: str, media_type: str) -> Optional[str]:
     """Download media from Meta and return the local URL path."""
     if not media_id or not access_token: return None
@@ -759,7 +802,7 @@ async def handle_webhook(request: Request):
                             contact = await conn.fetchrow(
                                 """INSERT INTO contacts (user_id,phone_number,name) VALUES ($1,$2,$2)
                                    ON CONFLICT (user_id,phone_number) DO UPDATE SET updated_at=CURRENT_TIMESTAMP
-                                   RETURNING id,phone_number,name""",
+                                   RETURNING id,phone_number,name,metadata""",
                                 tenant_id, phone)
                             session = await conn.fetchrow("SELECT * FROM sessions WHERE contact_id=$1", contact['id'])
                             if not session:
@@ -777,6 +820,35 @@ async def handle_webhook(request: Request):
                                     "direction":"INBOUND","sender_type":"CUSTOMER","text":text or '',
                                     "media_url": media_url, "media_type": media_type,
                                     "created_at":datetime.now(timezone.utc).isoformat()}})
+
+                        # Handle Shopify Order Tagging
+                        if tenant.get('shopify_store_url') and tenant.get('shopify_api_token') and contact.get('metadata'):
+                            try:
+                                metadata = contact['metadata']
+                                if isinstance(metadata, str):
+                                    metadata = json.loads(metadata)
+                                
+                                order_id = metadata.get("shopify_order_id")
+                                if order_id and text:
+                                    text_clean = text.replace("[رد: ", "").replace("[زر: ", "").replace("[قائمة: ", "").replace("]", "").strip()
+                                    
+                                    new_tag = None
+                                    if "تاكيد" in text_clean or "تأكيد" in text_clean:
+                                        new_tag = "confirmed"
+                                    elif "الغاء" in text_clean or "إلغاء" in text_clean:
+                                        new_tag = "cancelled"
+                                        
+                                    if new_tag:
+                                        # Run tagging in background task so we don't block the webhook
+                                        asyncio.create_task(update_shopify_order_tags(
+                                            order_id=order_id, 
+                                            new_tag=new_tag, 
+                                            store_url=tenant['shopify_store_url'], 
+                                            api_token=tenant['shopify_api_token']
+                                        ))
+                            except Exception as e:
+                                logger.error(f"Failed to process Shopify tagging in webhook: {e}")
+
                         if not session.get('is_bot_paused', False):
                             async with pool.acquire() as conn:
                                 history = await conn.fetch(
@@ -1315,12 +1387,15 @@ async def bulk_order_confirmations(
 
             # 4. Log to inbox (same as campaigns flow)
             async with pool.acquire() as conn:
+                metadata_json = json.dumps({"shopify_order_id": order["id"]})
                 contact = await conn.fetchrow(
-                    """INSERT INTO contacts (user_id, phone_number, name)
-                       VALUES ($1, $2, $3)
-                       ON CONFLICT (user_id, phone_number) DO UPDATE SET updated_at=CURRENT_TIMESTAMP
+                    """INSERT INTO contacts (user_id, phone_number, name, metadata)
+                       VALUES ($1, $2, $3, $4::jsonb)
+                       ON CONFLICT (user_id, phone_number) DO UPDATE SET 
+                           updated_at=CURRENT_TIMESTAMP, 
+                           metadata = COALESCE(contacts.metadata, '{}'::jsonb) || $4::jsonb
                        RETURNING id, phone_number, name""",
-                    user_id, phone, contact_name
+                    user_id, phone, contact_name, metadata_json
                 )
                 # Update name if it was stored as phone number
                 if contact['name'] == phone and contact_name != phone:
