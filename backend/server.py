@@ -1129,11 +1129,9 @@ async def bulk_order_confirmations(
                 components=[{
                     "type": "body",
                     "parameters": [
-                        {"type": "text", "text": shipping.get("name", "")},
-                        {"type": "text", "text": f"{shipping.get('address1', '')}, {shipping.get('province', '')}"},
+                        {"type": "text", "text": order_name},
                         {"type": "text", "text": products_text},
                         {"type": "text", "text": f"{total_price} EGP"},
-                        {"type": "text", "text": order_name},
                     ]
                 }]
             )
@@ -1141,7 +1139,6 @@ async def bulk_order_confirmations(
             # 3. Build readable inbox log text
             log_text = (
                 f"📦 تأكيد طلب #{order_name}\n"
-                f"الاسم: {shipping.get('name', '')}\n"
                 f"المنتجات: {products_text}\n"
                 f"الإجمالي: {total_price} EGP"
             )
