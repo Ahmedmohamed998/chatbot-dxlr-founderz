@@ -185,6 +185,7 @@ class LogMessageRequest(BaseModel):
     contact_name: Optional[str] = None
     meta_message_id: Optional[str] = None
     pause_ai: bool = True
+    shopify_order_number: Optional[str] = None
 
 class OrderConfirmationItem(BaseModel):
     phone: str
@@ -905,16 +906,34 @@ async def log_outbound_message(
     """
     pool = await get_db_pool()
     user_id = current_user['id']
+    
+    # Optional: fetch shopify internal ID if an order number was provided
+    shopify_order_id = None
+    if request.shopify_order_number and current_user.get('shopify_store_url') and current_user.get('shopify_api_token'):
+        try:
+            order = await fetch_shopify_order(
+                request.shopify_order_number, 
+                current_user['shopify_store_url'], 
+                current_user['shopify_api_token']
+            )
+            if order:
+                shopify_order_id = order['id']
+        except Exception as e:
+            logger.error(f"Failed to fetch shopify order id during log-outbound: {e}")
+
     async with pool.acquire() as conn:
         # Create contact if it doesn't exist yet
         display_name = request.contact_name.strip() if request.contact_name else phone
+        metadata_json = json.dumps({"shopify_order_id": shopify_order_id}) if shopify_order_id else "{}"
+        
         contact = await conn.fetchrow(
-            """INSERT INTO contacts (user_id, phone_number, name)
-               VALUES ($1, $2, $3)
+            """INSERT INTO contacts (user_id, phone_number, name, metadata)
+               VALUES ($1, $2, $3, $4::jsonb)
                ON CONFLICT (user_id, phone_number) DO UPDATE
-                 SET updated_at = CURRENT_TIMESTAMP
+                 SET updated_at = CURRENT_TIMESTAMP,
+                     metadata = COALESCE(contacts.metadata, '{}'::jsonb) || $4::jsonb
                RETURNING id, phone_number, name""",
-            user_id, phone, display_name
+            user_id, phone, display_name, metadata_json
         )
         # If a name was provided and contact already existed with phone as name, update it
         if request.contact_name and contact['name'] == phone:
