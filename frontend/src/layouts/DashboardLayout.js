@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { NavLink, Outlet, useNavigate, Navigate } from 'react-router-dom';
 import { useAuth, useToast } from '../contexts/AppContext';
-import { Bot, MessageSquare, LayoutGrid, Megaphone, LogOut, Sparkles, BookOpen, Users, Settings, Power } from 'lucide-react';
+import { Bot, MessageSquare, LayoutGrid, Megaphone, LogOut, Sparkles, BookOpen, Users, Settings, Power, ShoppingBag } from 'lucide-react';
 
 const DashboardLayout = () => {
   const { user, logout, api, loading } = useAuth();
@@ -60,6 +60,7 @@ const DashboardLayout = () => {
     { path: '/dashboard/inbox', icon: MessageSquare, label: 'Inbox' },
     { path: '/dashboard/templates', icon: LayoutGrid, label: 'Templates' },
     { path: '/dashboard/campaigns', icon: Megaphone, label: 'Campaigns' },
+    { path: '/dashboard/order-confirmations', icon: ShoppingBag, label: 'Confirm Orders' },
     { path: '/dashboard/knowledge', icon: BookOpen, label: 'Knowledge Base' },
     { path: '/dashboard/settings', icon: Settings, label: 'Settings' },
   ];

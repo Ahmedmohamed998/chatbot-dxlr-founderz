@@ -9,6 +9,7 @@ import Campaigns from './pages/Campaigns';
 import KnowledgeBase from './pages/KnowledgeBase';
 import Settings from './pages/Settings';
 import AdminUsers from './pages/AdminUsers';
+import OrderConfirmations from './pages/OrderConfirmations';
 import ToastContainer from './components/ToastContainer';
 import './App.css';
 
@@ -27,6 +28,7 @@ function App() {
                 <Route path="campaigns" element={<Campaigns />} />
                 <Route path="knowledge" element={<KnowledgeBase />} />
                 <Route path="settings" element={<Settings />} />
+                <Route path="order-confirmations" element={<OrderConfirmations />} />
                 <Route path="admin" element={<AdminUsers />} />
               </Route>
               <Route path="/" element={<Navigate to="/login" replace />} />

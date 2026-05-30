@@ -14,8 +14,11 @@ const Settings = () => {
     meta_verify_token: '',
     password: '',
     confirm_password: '',
+    shopify_store_url: '',
+    shopify_api_token: '',
   });
   const [showToken, setShowToken] = useState(false);
+  const [showShopifyToken, setShowShopifyToken] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [stats, setStats] = useState({ total_chunks: 0 });
   const [hasToken, setHasToken] = useState(false);
@@ -37,6 +40,8 @@ const Settings = () => {
           meta_phone_number_id: s.meta_phone_number_id || '',
           meta_waba_id: s.meta_waba_id || '',
           meta_verify_token: s.meta_verify_token || '',
+          shopify_store_url: s.shopify_store_url || '',
+          shopify_api_token: '', // never show API tokens
         }));
         setHasToken(s.has_token);
         setApiKey(s.api_key || '');
@@ -62,6 +67,8 @@ const Settings = () => {
       if (form.meta_phone_number_id) payload.meta_phone_number_id = form.meta_phone_number_id;
       if (form.meta_waba_id) payload.meta_waba_id = form.meta_waba_id;
       if (form.meta_verify_token) payload.meta_verify_token = form.meta_verify_token;
+      if (form.shopify_store_url) payload.shopify_store_url = form.shopify_store_url;
+      if (form.shopify_api_token) payload.shopify_api_token = form.shopify_api_token;
       if (form.password) payload.password = form.password;
       await api.put('/settings', payload);
       success('Settings saved successfully!');
@@ -188,6 +195,39 @@ const Settings = () => {
               className="w-full px-4 py-3 bg-[#0A0A0A] border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#00E599] transition-colors font-mono text-sm"
             />
             <p className="text-xs text-zinc-600 mt-1.5">Set this exact value in Meta's webhook configuration → Verify Token field.</p>
+          </Field>
+        </div>
+
+        {/* Shopify Credentials */}
+        <div className="bg-[#111] border border-white/5 rounded-xl p-6 space-y-4">
+          <h2 className="font-semibold text-white mb-1">Shopify Integration</h2>
+          <p className="text-xs text-zinc-500 mb-4">Required for fetching order details for order confirmation templates.</p>
+
+          <Field label="Store URL" icon={Building2}>
+            <input
+              type="text"
+              value={form.shopify_store_url}
+              onChange={e => setForm(p => ({ ...p, shopify_store_url: e.target.value }))}
+              placeholder="https://your-store.myshopify.com"
+              className="w-full px-4 py-3 bg-[#0A0A0A] border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#00E599] transition-colors font-mono text-sm"
+            />
+          </Field>
+
+          <Field label="Admin API Token" icon={Key}>
+            <div className="relative">
+              <input
+                type={showShopifyToken ? 'text' : 'password'}
+                value={form.shopify_api_token}
+                onChange={e => setForm(p => ({ ...p, shopify_api_token: e.target.value }))}
+                placeholder="shpat_..."
+                className="w-full px-4 py-3 pr-12 bg-[#0A0A0A] border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#00E599] transition-colors font-mono text-sm"
+              />
+              <button type="button" onClick={() => setShowShopifyToken(p => !p)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white">
+                {showShopifyToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            <p className="text-xs text-zinc-600 mt-1.5">Needs "read_orders" permission.</p>
           </Field>
         </div>
 

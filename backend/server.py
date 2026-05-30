@@ -63,6 +63,8 @@ async def init_db():
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS meta_waba_id VARCHAR(255)")
         await conn.execute("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS api_key VARCHAR(64)")
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS shopify_store_url VARCHAR(255)")
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS shopify_api_token VARCHAR(255)")
 
         admin = await conn.fetchrow("SELECT id FROM users WHERE username = $1", 'admin')
         if not admin:
@@ -120,6 +122,8 @@ class UpdateUserRequest(BaseModel):
     meta_waba_id: Optional[str] = None
     meta_verify_token: Optional[str] = None
     password: Optional[str] = None
+    shopify_store_url: Optional[str] = None
+    shopify_api_token: Optional[str] = None
 
 class UserAdminResponse(BaseModel):
     id: str
@@ -166,9 +170,17 @@ class UpdateContactNameRequest(BaseModel):
 
 class LogMessageRequest(BaseModel):
     text: str
-    contact_name: Optional[str] = None      # optional display name for this contact
-    meta_message_id: Optional[str] = None  # wamid from Meta, if available
-    pause_ai: bool = True                  # pause AI for this session (recommended for order confirmations)
+    contact_name: Optional[str] = None
+    meta_message_id: Optional[str] = None
+    pause_ai: bool = True
+
+class OrderConfirmationItem(BaseModel):
+    phone: str
+    order_number: str
+
+class BulkOrderConfirmationRequest(BaseModel):
+    items: List[OrderConfirmationItem]
+    template_name: str = "order_confirmation"
 
 class TemplateResponse(BaseModel):
     id: str
@@ -332,6 +344,59 @@ async def send_whatsapp_template(phone: str, template_name: str, language: str, 
     except Exception:
         return None
 
+async def send_whatsapp_template_with_components(
+    phone: str, template_name: str, language: str,
+    access_token: str, phone_number_id: str,
+    components: List[Dict]
+) -> Optional[str]:
+    """Send a WhatsApp template message with body parameter components."""
+    if not access_token or not phone_number_id:
+        return f"wamid.template_{uuid.uuid4().hex[:12]}"
+    url = f"https://graph.facebook.com/v18.0/{phone_number_id}/messages"
+    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": phone,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {"code": language},
+            "components": components
+        }
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            logger.info(f"Template send to {phone}: {response.status_code} {response.text[:200]}")
+            if response.status_code == 200:
+                return response.json().get("messages", [{}])[0].get("id")
+        return None
+    except Exception as e:
+        logger.error(f"Template send error: {e}")
+        return None
+
+async def fetch_shopify_order(order_number: str, store_url: str, api_token: str) -> Optional[Dict]:
+    """Fetch a Shopify order by order number (e.g. 7940 or #7940)."""
+    clean = order_number.strip().lstrip('#')
+    base = store_url.rstrip('/')
+    headers = {"X-Shopify-Access-Token": api_token, "Content-Type": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            # Try by name (most reliable)
+            resp = await client.get(
+                f"{base}/admin/api/2024-01/orders.json",
+                params={"name": f"#{clean}", "status": "any"},
+                headers=headers
+            )
+            if resp.status_code == 200:
+                orders = resp.json().get("orders", [])
+                if orders:
+                    return orders[0]
+            logger.warning(f"Shopify order #{clean} not found: {resp.status_code} {resp.text[:200]}")
+    except Exception as e:
+        logger.error(f"Shopify fetch error: {e}")
+    return None
+
 async def generate_ai_response(phone_number: str, incoming_message: str, message_history: List[Dict], user_id: int) -> str:
     try:
         from google import genai
@@ -426,6 +491,10 @@ async def update_settings(request: UpdateUserRequest, current_user: Dict = Depen
             updates.append(f"meta_verify_token = ${idx}"); vals.append(request.meta_verify_token); idx += 1
         if request.meta_waba_id is not None:
             updates.append(f"meta_waba_id = ${idx}"); vals.append(request.meta_waba_id); idx += 1
+        if request.shopify_store_url is not None:
+            updates.append(f"shopify_store_url = ${idx}"); vals.append(request.shopify_store_url); idx += 1
+        if request.shopify_api_token is not None:
+            updates.append(f"shopify_api_token = ${idx}"); vals.append(request.shopify_api_token); idx += 1
         if request.password is not None:
             pw_hash = bcrypt.hashpw(request.password.encode(), bcrypt.gensalt()).decode()
             updates.append(f"password_hash = ${idx}"); vals.append(pw_hash); idx += 1
@@ -444,6 +513,8 @@ async def get_settings(current_user: Dict = Depends(get_current_user)):
         "meta_verify_token": current_user['meta_verify_token'] or '',
         "has_token": bool(current_user['meta_access_token']),
         "api_key": current_user.get('api_key') or '',
+        "shopify_store_url": current_user.get('shopify_store_url') or '',
+        "has_shopify_token": bool(current_user.get('shopify_api_token')),
     }
 
 @api_router.post("/settings/generate-api-key")
@@ -998,6 +1069,134 @@ async def send_campaign(request: CampaignRequest, current_user: Dict = Depends(g
             failed_count += 1
             details.append({"phone": phone, "status": "failed", "error": str(e)})
     return CampaignResponse(success=failed_count == 0, sent_count=sent_count, failed_count=failed_count, details=details)
+
+
+# ── Bulk Order Confirmations ──────────────────────────────────
+@api_router.post("/campaigns/order-confirmations")
+async def bulk_order_confirmations(
+    request: BulkOrderConfirmationRequest,
+    current_user: Dict = Depends(get_current_user)
+):
+    """
+    For each (phone, order_number) pair:
+    1. Fetch order from Shopify
+    2. Send WhatsApp template with order details
+    3. Log message to inbox (so it appears in dashboard)
+    """
+    store_url = current_user.get('shopify_store_url')
+    api_token = current_user.get('shopify_api_token')
+    if not store_url or not api_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Shopify credentials not configured. Go to Settings → Shopify Integration."
+        )
+
+    pool = await get_db_pool()
+    user_id = current_user['id']
+    results = []
+
+    for item in request.items:
+        phone = item.phone.strip()
+        order_num = item.order_number.strip().lstrip('#')
+        if not phone or not order_num:
+            continue
+        try:
+            # 1. Fetch order from Shopify
+            order = await fetch_shopify_order(order_num, store_url, api_token)
+            if not order:
+                results.append({"phone": phone, "order": order_num, "status": "failed", "error": "Order not found in Shopify"})
+                continue
+
+            shipping  = order.get("shipping_address") or {}
+            line_items = order.get("line_items", [])
+            total_price = order.get("total_price", "0.00")
+            order_name  = str(order.get("name", f"#{order_num}")).lstrip('#')
+            contact_name = shipping.get("name") or phone
+
+            # Build products string matching the template format
+            products_text = " | ".join([
+                f"{li.get('title', '')} - مقاس {li.get('variant_title') or 'N/A'} - العدد {li.get('quantity', 1)}"
+                for li in line_items
+            ])
+
+            # 2. Send WhatsApp template with components
+            message_id = await send_whatsapp_template_with_components(
+                phone=phone,
+                template_name=request.template_name,
+                language="ar_EG",
+                access_token=current_user['meta_access_token'],
+                phone_number_id=current_user['meta_phone_number_id'],
+                components=[{
+                    "type": "body",
+                    "parameters": [
+                        {"type": "text", "text": shipping.get("name", "")},
+                        {"type": "text", "text": f"{shipping.get('address1', '')}, {shipping.get('province', '')}"},
+                        {"type": "text", "text": products_text},
+                        {"type": "text", "text": f"{total_price} EGP"},
+                        {"type": "text", "text": order_name},
+                    ]
+                }]
+            )
+
+            # 3. Build readable inbox log text
+            log_text = (
+                f"📦 تأكيد طلب #{order_name}\n"
+                f"الاسم: {shipping.get('name', '')}\n"
+                f"المنتجات: {products_text}\n"
+                f"الإجمالي: {total_price} EGP"
+            )
+
+            # 4. Log to inbox (same as campaigns flow)
+            async with pool.acquire() as conn:
+                contact = await conn.fetchrow(
+                    """INSERT INTO contacts (user_id, phone_number, name)
+                       VALUES ($1, $2, $3)
+                       ON CONFLICT (user_id, phone_number) DO UPDATE SET updated_at=CURRENT_TIMESTAMP
+                       RETURNING id, phone_number, name""",
+                    user_id, phone, contact_name
+                )
+                # Update name if it was stored as phone number
+                if contact['name'] == phone and contact_name != phone:
+                    await conn.execute("UPDATE contacts SET name=$1 WHERE id=$2", contact_name, contact['id'])
+
+                session = await conn.fetchrow("SELECT * FROM sessions WHERE contact_id=$1", contact['id'])
+                if not session:
+                    session = await conn.fetchrow(
+                        "INSERT INTO sessions (contact_id, is_bot_paused) VALUES ($1, TRUE) RETURNING *",
+                        contact['id']
+                    )
+                msg_id = await conn.fetchval(
+                    """INSERT INTO messages (session_id, direction, sender_type, text, meta_message_id, status)
+                       VALUES ($1, 'OUTBOUND', 'ADMIN', $2, $3, 'sent') RETURNING id""",
+                    session['id'], log_text, message_id
+                )
+
+            # 5. Broadcast to inbox in real-time
+            await ws_manager.broadcast({
+                "type": "new_message",
+                "user_id": user_id,
+                "data": {
+                    "id": str(msg_id),
+                    "session_id": str(session['id']),
+                    "phone_number": phone,
+                    "direction": "OUTBOUND",
+                    "sender_type": "ADMIN",
+                    "text": log_text,
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+            })
+
+            results.append({"phone": phone, "order": order_num, "status": "sent", "message_id": message_id, "contact_name": contact_name})
+            logger.info(f"Order confirmation sent to {phone} for order #{order_num}")
+            await asyncio.sleep(0.3)  # Rate limit: ~3/sec
+
+        except Exception as e:
+            logger.error(f"Order confirmation error for {phone} #{order_num}: {e}")
+            results.append({"phone": phone, "order": order_num, "status": "failed", "error": str(e)})
+
+    sent   = sum(1 for r in results if r['status'] == 'sent')
+    failed = len(results) - sent
+    return {"success": failed == 0, "sent": sent, "failed": failed, "results": results}
 
 
 # ── Knowledge Base ───────────────────────────────────────────
