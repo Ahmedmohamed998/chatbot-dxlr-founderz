@@ -95,7 +95,7 @@ app = FastAPI(lifespan=lifespan)
 # Setup local media storage
 MEDIA_DIR = Path("data/media")
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/media", StaticFiles(directory="data/media"), name="media")
+app.mount("/api/media", StaticFiles(directory="data/media"), name="media")
 
 api_router = APIRouter(prefix="/api")
 security = HTTPBearer(auto_error=False)
@@ -484,7 +484,7 @@ async def download_meta_media(media_id: str, access_token: str, media_type: str)
             filename = f"{media_type}_{media_id}{ext}"
             filepath = MEDIA_DIR / filename
             filepath.write_bytes(res_bin.content)
-            return f"/media/{filename}"
+            return f"/api/media/{filename}"
     except Exception as e:
         logger.error(f"Error downloading media: {e}")
         return None
@@ -961,7 +961,7 @@ async def send_media(phone: str, file: UploadFile = File(...), current_user: Dic
     filename = f"out_{uuid.uuid4().hex[:8]}{ext}"
     filepath = MEDIA_DIR / filename
     filepath.write_bytes(file_bytes)
-    local_url = f"/media/{filename}"
+    local_url = f"/api/media/{filename}"
 
     pool = await get_db_pool()
     async with pool.acquire() as conn:

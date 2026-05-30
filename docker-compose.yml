@@ -37,6 +37,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - media_data:/app/data/media
 
   frontend:
     build:
@@ -54,3 +56,4 @@ services:
 
 volumes:
   postgres_data:
+  media_data:
