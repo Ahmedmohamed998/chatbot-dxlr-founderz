@@ -1009,7 +1009,8 @@ async def log_outbound_message(
         order_name_for_contact = request.shopify_order_number.strip().lstrip('#') if request.shopify_order_number else None
         
         if order_name_for_contact:
-            if not old_name or old_name == phone:
+            if not old_name or old_name == phone or not all(c.isdigit() or c == '-' or c == ' ' for c in old_name):
+                # Replace completely if it's the phone number, or if it contains text (like customer name)
                 new_name = order_name_for_contact
             elif order_name_for_contact not in old_name.split(" - "):
                 new_name = old_name + " - " + order_name_for_contact
@@ -1556,7 +1557,7 @@ async def bulk_order_confirmations(
                 old_name = contact['name']
                 new_name = old_name
                 
-                if not old_name or old_name == phone:
+                if not old_name or old_name == phone or not all(c.isdigit() or c == '-' or c == ' ' for c in old_name):
                     new_name = order_name
                 elif order_name not in old_name.split(" - "):
                     new_name = old_name + " - " + order_name
