@@ -452,8 +452,8 @@ async def fetch_shopify_order(order_number: str, store_url: str, api_token: str)
         logger.error(f"Shopify fetch error: {e}")
     return None
 
-async def update_shopify_order_tags(order_id: int, new_tag: str, store_url: str, api_token: str) -> bool:
-    """Update a Shopify order's tags by appending a new tag if not already present."""
+async def update_shopify_order_tags(order_id: int, tags_to_add: List[str], tags_to_remove: List[str], store_url: str, api_token: str) -> bool:
+    """Update a Shopify order's tags by adding and removing specific tags."""
     base = store_url.rstrip('/')
     headers = {"X-Shopify-Access-Token": api_token, "Content-Type": "application/json"}
     try:
@@ -470,13 +470,22 @@ async def update_shopify_order_tags(order_id: int, new_tag: str, store_url: str,
             order = resp.json().get("order", {})
             current_tags = order.get("tags", "")
             
-            # Check if tag already exists
+            # Parse existing tags
             tags_list = [t.strip() for t in current_tags.split(",")] if current_tags else []
-            if new_tag in tags_list:
-                return True # Already tagged
-                
-            tags_list.append(new_tag)
+            
+            # Remove requested tags
+            tags_list = [t for t in tags_list if t not in tags_to_remove]
+            
+            # Add requested tags if not already present
+            for t in tags_to_add:
+                if t not in tags_list:
+                    tags_list.append(t)
+            
             updated_tags = ", ".join(tags_list)
+            
+            # Avoid unnecessary API calls if tags didn't change
+            if updated_tags == current_tags:
+                return True
             
             # Update the order
             update_resp = await client.put(
@@ -485,7 +494,7 @@ async def update_shopify_order_tags(order_id: int, new_tag: str, store_url: str,
                 headers=headers
             )
             if update_resp.status_code == 200:
-                logger.info(f"Successfully tagged Shopify order {order_id} with {new_tag}")
+                logger.info(f"Successfully tagged Shopify order {order_id} with {tags_to_add} (removed {tags_to_remove})")
                 return True
             else:
                 logger.error(f"Failed to update tags for order {order_id}: {update_resp.text}")
@@ -833,17 +842,21 @@ async def handle_webhook(request: Request):
                                 if order_id and text:
                                     text_clean = text.replace("[رد: ", "").replace("[زر: ", "").replace("[قائمة: ", "").replace("]", "").strip()
                                     
-                                    new_tag = None
+                                    tags_to_add = []
+                                    tags_to_remove = []
                                     if "تاكيد" in text_clean or "تأكيد" in text_clean:
-                                        new_tag = "confirmed"
+                                        tags_to_add = ["confirmed"]
+                                        tags_to_remove = ["cancelled", "pending"]
                                     elif "الغاء" in text_clean or "إلغاء" in text_clean:
-                                        new_tag = "cancelled"
+                                        tags_to_add = ["cancelled"]
+                                        tags_to_remove = ["confirmed", "pending"]
                                         
-                                    if new_tag:
+                                    if tags_to_add:
                                         # Run tagging in background task so we don't block the webhook
                                         asyncio.create_task(update_shopify_order_tags(
                                             order_id=order_id, 
-                                            new_tag=new_tag, 
+                                            tags_to_add=tags_to_add, 
+                                            tags_to_remove=tags_to_remove,
                                             store_url=tenant['shopify_store_url'], 
                                             api_token=tenant['shopify_api_token']
                                         ))
@@ -918,6 +931,14 @@ async def log_outbound_message(
             )
             if order:
                 shopify_order_id = order['id']
+                # Tag as pending initially
+                asyncio.create_task(update_shopify_order_tags(
+                    order_id=shopify_order_id,
+                    tags_to_add=["pending"],
+                    tags_to_remove=["confirmed", "cancelled"],
+                    store_url=current_user['shopify_store_url'],
+                    api_token=current_user['shopify_api_token']
+                ))
         except Exception as e:
             logger.error(f"Failed to fetch shopify order id during log-outbound: {e}")
 
@@ -1367,6 +1388,15 @@ async def bulk_order_confirmations(
             if not order:
                 results.append({"phone": phone, "order": order_num, "status": "failed", "error": "Order not found in Shopify"})
                 continue
+                
+            # Tag as pending initially
+            asyncio.create_task(update_shopify_order_tags(
+                order_id=order["id"],
+                tags_to_add=["pending"],
+                tags_to_remove=["confirmed", "cancelled"],
+                store_url=store_url,
+                api_token=api_token
+            ))
 
             shipping  = order.get("shipping_address") or {}
             line_items = order.get("line_items", [])
