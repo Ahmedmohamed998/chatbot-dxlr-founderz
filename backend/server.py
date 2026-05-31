@@ -64,6 +64,7 @@ async def init_db():
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS meta_waba_id VARCHAR(255)")
         await conn.execute("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP")
         await conn.execute("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'")
+        await conn.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS unread_count INTEGER DEFAULT 0")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS api_key VARCHAR(64)")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS shopify_store_url VARCHAR(255)")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS shopify_api_token VARCHAR(255)")
@@ -166,6 +167,7 @@ class SessionResponse(BaseModel):
     id: str
     contact_id: str
     is_bot_paused: bool
+    unread_count: int = 0
     created_at: str
     updated_at: str
     contact: Optional[ContactResponse] = None
@@ -672,6 +674,20 @@ async def generate_api_key(current_user: Dict = Depends(get_current_user)):
         await conn.execute("UPDATE users SET api_key=$1 WHERE id=$2", new_key, current_user['id'])
     return {"api_key": new_key}
 
+@api_router.post("/chats/{phone}/mark-read")
+async def mark_chat_read(phone: str, current_user: Dict = Depends(get_current_user)):
+    """Reset the unread count for a specific chat session."""
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        contact = await conn.fetchrow("SELECT id FROM contacts WHERE user_id=$1 AND phone_number=$2", current_user['id'], phone)
+        if not contact:
+            raise HTTPException(status_code=404, detail="Contact not found")
+        await conn.execute(
+            "UPDATE sessions SET unread_count=0 WHERE contact_id=$1", 
+            contact['id']
+        )
+    return {"success": True}
+
 # ── Super Admin — User Management ───────────────────────────
 @api_router.get("/admin/users", response_model=List[UserAdminResponse])
 async def list_users(current_user: Dict = Depends(require_super_admin)):
@@ -820,7 +836,7 @@ async def handle_webhook(request: Request):
                                     "INSERT INTO sessions (contact_id,is_bot_paused) VALUES ($1,TRUE) RETURNING *", contact['id'])
                             else:
                                 session = await conn.fetchrow(
-                                    "UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING *", session['id'])
+                                    "UPDATE sessions SET updated_at=CURRENT_TIMESTAMP, unread_count=unread_count+1 WHERE id=$1 RETURNING *", session['id'])
                             msg_id = await conn.fetchval(
                                 """INSERT INTO messages (session_id,direction,sender_type,text,meta_message_id,status,media_url,media_type)
                                    VALUES ($1,'INBOUND','CUSTOMER',$2,$3,'received',$4,$5) RETURNING id""",
@@ -1052,6 +1068,7 @@ async def get_chats(
                                      sender_type=last_msg['sender_type'],text=last_msg['text'],meta_message_id=last_msg['meta_message_id'],
                                      status=last_msg['status'],created_at=str(last_msg['created_at']))
             result.append(SessionResponse(id=str(r['id']),contact_id=str(r['contact_id']),is_bot_paused=r['is_bot_paused'],
+                                          unread_count=r['unread_count'] or 0,
                                           created_at=str(r['created_at']),updated_at=str(r['updated_at']),contact=cr,last_message=lm))
     return {
         "chats": result,

@@ -183,12 +183,20 @@ const Inbox = () => {
                 return prev;
               }
               const updated = { ...prev[idx], last_message: newLastMsg };
+              
+              if (!isCurrentChat) {
+                updated.unread_count = (updated.unread_count || 0) + 1;
+              }
+              
               return [updated, ...prev.filter((_, i) => i !== idx)];
             });
 
-            // Mark as unread if not the currently open chat
-            if (!isCurrentChat) {
-              setUnreadSessions(prev => new Set([...prev, msgData.session_id]));
+            // If message is for open chat, mark as read in backend
+            if (isCurrentChat) {
+              const token = localStorage.getItem('token');
+              axios.post(`${BACKEND_URL}/api/chats/${msgData.phone_number}/mark-read`, {}, {
+                headers: { Authorization: `Bearer ${token}` }
+              }).catch(() => {});
             }
 
             // Append message to open chat
@@ -237,12 +245,16 @@ const Inbox = () => {
     setSelectedChat(chat);
     setMessages([]);
     setIsEditingName(false);
-    // Mark as read
-    setUnreadSessions(prev => {
-      const next = new Set(prev);
-      next.delete(chat.id);
-      return next;
-    });
+    
+    // Clear unread count locally
+    setChats(prev => prev.map(c => c.id === chat.id ? { ...c, unread_count: 0 } : c));
+    
+    // Mark as read in backend
+    const token = localStorage.getItem('token');
+    axios.post(`${BACKEND_URL}/api/chats/${chat.contact.phone_number}/mark-read`, {}, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).catch(err => console.error('Failed to mark read', err));
+    
     inputRef.current?.focus();
   };
 
@@ -514,7 +526,7 @@ const Inbox = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <span className={`font-medium truncate ${unreadSessions.has(chat.id) ? 'text-white' : 'text-zinc-300'}`}>
+                        <span className={`font-medium truncate ${chat.unread_count > 0 ? 'text-white' : 'text-zinc-300'}`}>
                           {contactHasCustomName(chat) ? chat.contact.name : chat.contact?.phone_number}
                         </span>
                         {contactHasCustomName(chat) && (
@@ -522,8 +534,10 @@ const Inbox = () => {
                         )}
                       </div>
                       <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                        {unreadSessions.has(chat.id) && (
-                          <span className="w-2 h-2 rounded-full bg-[#00E599] flex-shrink-0" />
+                        {chat.unread_count > 0 && (
+                          <span className="w-5 h-5 rounded-full bg-[#00E599] flex items-center justify-center flex-shrink-0 text-black text-[10px] font-bold">
+                            {chat.unread_count > 99 ? '99+' : chat.unread_count}
+                          </span>
                         )}
                         {chat.last_message && (
                           <span className="text-xs text-zinc-500">
