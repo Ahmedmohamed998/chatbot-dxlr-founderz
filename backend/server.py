@@ -845,11 +845,11 @@ async def handle_webhook(request: Request):
                                     tags_to_add = []
                                     tags_to_remove = []
                                     if "تاكيد" in text_clean or "تأكيد" in text_clean:
-                                        tags_to_add = ["confirmed"]
-                                        tags_to_remove = ["cancelled", "pending"]
+                                        tags_to_add = ["Confirmed ✅"]
+                                        tags_to_remove = ["Cancelled ❌", "Pending ⚠️", "No Whats 🚨"]
                                     elif "الغاء" in text_clean or "إلغاء" in text_clean:
-                                        tags_to_add = ["cancelled"]
-                                        tags_to_remove = ["confirmed", "pending"]
+                                        tags_to_add = ["Cancelled ❌"]
+                                        tags_to_remove = ["Confirmed ✅", "Pending ⚠️", "No Whats 🚨"]
                                         
                                     if tags_to_add:
                                         # Run tagging in background task so we don't block the webhook
@@ -934,8 +934,8 @@ async def log_outbound_message(
                 # Tag as pending initially
                 asyncio.create_task(update_shopify_order_tags(
                     order_id=shopify_order_id,
-                    tags_to_add=["pending"],
-                    tags_to_remove=["confirmed", "cancelled"],
+                    tags_to_add=["Pending ⚠️"],
+                    tags_to_remove=["Confirmed ✅", "Cancelled ❌", "No Whats 🚨"],
                     store_url=current_user['shopify_store_url'],
                     api_token=current_user['shopify_api_token']
                 ))
@@ -1388,16 +1388,6 @@ async def bulk_order_confirmations(
             if not order:
                 results.append({"phone": phone, "order": order_num, "status": "failed", "error": "Order not found in Shopify"})
                 continue
-                
-            # Tag as pending initially
-            asyncio.create_task(update_shopify_order_tags(
-                order_id=order["id"],
-                tags_to_add=["pending"],
-                tags_to_remove=["confirmed", "cancelled"],
-                store_url=store_url,
-                api_token=api_token
-            ))
-
             shipping  = order.get("shipping_address") or {}
             line_items = order.get("line_items", [])
             total_price = order.get("total_price", "0.00")
@@ -1426,6 +1416,24 @@ async def bulk_order_confirmations(
                     ]
                 }]
             )
+            
+            # Tag in Shopify depending on whether the message sent successfully
+            if message_id:
+                asyncio.create_task(update_shopify_order_tags(
+                    order_id=order["id"],
+                    tags_to_add=["Pending ⚠️"],
+                    tags_to_remove=["Confirmed ✅", "Cancelled ❌", "No Whats 🚨"],
+                    store_url=store_url,
+                    api_token=api_token
+                ))
+            else:
+                asyncio.create_task(update_shopify_order_tags(
+                    order_id=order["id"],
+                    tags_to_add=["No Whats 🚨"],
+                    tags_to_remove=["Confirmed ✅", "Cancelled ❌", "Pending ⚠️"],
+                    store_url=store_url,
+                    api_token=api_token
+                ))
 
             # 3. Build readable inbox log text
             log_text = (
