@@ -887,6 +887,33 @@ async def handle_webhook(request: Request):
                         if mid and sv:
                             async with pool.acquire() as conn:
                                 await conn.execute("UPDATE messages SET status=$1 WHERE meta_message_id=$2", sv, mid)
+                                
+                                # If message failed, check if we need to update the Shopify order to "No Whats"
+                                if sv == "failed" and tenant.get('shopify_store_url') and tenant.get('shopify_api_token'):
+                                    try:
+                                        row = await conn.fetchrow(
+                                            """SELECT c.metadata 
+                                               FROM messages m 
+                                               JOIN sessions s ON m.session_id = s.id 
+                                               JOIN contacts c ON s.contact_id = c.id 
+                                               WHERE m.meta_message_id = $1""", 
+                                            mid
+                                        )
+                                        if row and row['metadata']:
+                                            metadata = row['metadata']
+                                            if isinstance(metadata, str):
+                                                metadata = json.loads(metadata)
+                                            order_id = metadata.get("shopify_order_id")
+                                            if order_id:
+                                                asyncio.create_task(update_shopify_order_tags(
+                                                    order_id=order_id,
+                                                    tags_to_add=["No Whats 🚨"],
+                                                    tags_to_remove=["Pending ⚠️", "Confirmed ✅", "Cancelled ❌"],
+                                                    store_url=tenant['shopify_store_url'],
+                                                    api_token=tenant['shopify_api_token']
+                                                ))
+                                    except Exception as e:
+                                        logger.error(f"Failed to process No Whats tag on webhook: {e}")
         return {"status": "ok"}
     except Exception as e:
         logger.error(f"Webhook error: {e}")
