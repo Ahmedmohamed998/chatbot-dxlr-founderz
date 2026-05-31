@@ -999,12 +999,22 @@ async def log_outbound_message(
                RETURNING id, phone_number, name""",
             user_id, phone, display_name, metadata_json
         )
-        # If a name was provided and contact already existed with phone as name, update it
-        if request.contact_name and contact['name'] == phone:
-            await conn.execute(
-                "UPDATE contacts SET name=$1 WHERE id=$2",
-                display_name, contact['id']
-            )
+        
+        # Smart update contact name to order numbers separated by " - "
+        old_name = contact['name']
+        new_name = old_name
+        order_name = request.shopify_order_number.strip().lstrip('#') if request.shopify_order_number else None
+        
+        if order_name:
+            if not old_name or old_name == phone:
+                new_name = order_name
+            elif order_name not in old_name.split(" - "):
+                new_name = old_name + " - " + order_name
+        elif request.contact_name and old_name == phone:
+            new_name = display_name
+            
+        if new_name != old_name:
+            await conn.execute("UPDATE contacts SET name=$1 WHERE id=$2", new_name, contact['id'])
         # Get or create session; new sessions from automations start with AI paused
         session = await conn.fetchrow("SELECT * FROM sessions WHERE contact_id=$1", contact['id'])
         if not session:
@@ -1498,9 +1508,18 @@ async def bulk_order_confirmations(
                        RETURNING id, phone_number, name""",
                     user_id, phone, contact_name, metadata_json
                 )
-                # Update name if it was stored as phone number
-                if contact['name'] == phone and contact_name != phone:
-                    await conn.execute("UPDATE contacts SET name=$1 WHERE id=$2", contact_name, contact['id'])
+                
+                # Smart update contact name to order numbers separated by " - "
+                old_name = contact['name']
+                new_name = old_name
+                
+                if not old_name or old_name == phone:
+                    new_name = order_name
+                elif order_name not in old_name.split(" - "):
+                    new_name = old_name + " - " + order_name
+                    
+                if new_name != old_name:
+                    await conn.execute("UPDATE contacts SET name=$1 WHERE id=$2", new_name, contact['id'])
 
                 session = await conn.fetchrow("SELECT * FROM sessions WHERE contact_id=$1", contact['id'])
                 if not session:
