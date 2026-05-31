@@ -1114,6 +1114,9 @@ async def get_chat_messages(phone: str, current_user: Dict = Depends(get_current
             return []
         msgs = await conn.fetch("SELECT * FROM messages WHERE session_id=$1 ORDER BY created_at ASC LIMIT 1000", session['id'])
         return [MessageResponse(id=str(m['id']),session_id=str(m['session_id']),direction=m['direction'],
+                                sender_type=m.get('sender_type') or 'CUSTOMER',
+                                text=m.get('text') or '',
+                                meta_message_id=m.get('meta_message_id') or '',
                                 status=m['status'],created_at=str(m['created_at']),
                                 media_url=m.get('media_url'), media_type=m.get('media_type')) for m in msgs]
 

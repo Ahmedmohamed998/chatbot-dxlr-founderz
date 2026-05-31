@@ -408,10 +408,7 @@ const Inbox = () => {
     
     // Update backend
     try {
-      const token = localStorage.getItem('token');
-      await axios.post(`${BACKEND_URL}/api/chats/${phone}/mark-unread`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.post(`/chats/${phone}/mark-unread`);
       success('Chat marked as unread');
     } catch (err) {
       error('Failed to mark chat as unread');
