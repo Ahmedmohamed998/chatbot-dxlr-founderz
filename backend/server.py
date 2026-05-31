@@ -1065,6 +1065,10 @@ async def get_chats(
             "SELECT COUNT(*) FROM sessions s JOIN contacts c ON s.contact_id=c.id WHERE c.user_id=$1",
             current_user['id']
         )
+        total_unread = await conn.fetchval(
+            "SELECT COUNT(*) FROM sessions s JOIN contacts c ON s.contact_id=c.id WHERE c.user_id=$1 AND s.unread_count > 0",
+            current_user['id']
+        )
         records = await conn.fetch(
             """SELECT s.*,c.phone_number,c.name as contact_name,c.created_at as contact_created_at
                FROM sessions s JOIN contacts c ON s.contact_id=c.id
@@ -1088,6 +1092,7 @@ async def get_chats(
     return {
         "chats": result,
         "total": total,
+        "total_unread": total_unread,
         "page": page,
         "limit": limit,
         "has_more": (offset + len(result)) < total

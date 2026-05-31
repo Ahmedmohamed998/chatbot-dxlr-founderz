@@ -68,6 +68,7 @@ const Inbox = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [totalChats, setTotalChats] = useState(0);
+  const [totalUnread, setTotalUnread] = useState(0);
   const chatListRef = useRef(null);
   const loadMoreRef = useRef(null);
 
@@ -104,10 +105,11 @@ const Inbox = () => {
     else setIsLoadingMore(true);
     try {
       const response = await api.get(`/chats?page=${page}&limit=50`);
-      const { chats: newChats, has_more, total } = response.data;
+      const { chats: newChats, has_more, total, total_unread } = response.data;
       setChats(prev => append ? [...prev, ...newChats] : newChats);
       setHasMore(has_more);
       setTotalChats(total);
+      setTotalUnread(total_unread || 0);
       setCurrentPage(page);
     } catch (err) {
       console.error('Failed to fetch chats:', err);
@@ -185,7 +187,9 @@ const Inbox = () => {
               const updated = { ...prev[idx], last_message: newLastMsg };
               
               if (!isCurrentChat) {
+                const isBecomingUnread = !(updated.unread_count > 0);
                 updated.unread_count = (updated.unread_count || 0) + 1;
+                if (isBecomingUnread) setTotalUnread(prevTotal => prevTotal + 1);
               }
               
               return [updated, ...prev.filter((_, i) => i !== idx)];
@@ -248,6 +252,9 @@ const Inbox = () => {
     
     // Clear unread count locally
     setChats(prev => prev.map(c => c.id === chat.id ? { ...c, unread_count: 0 } : c));
+    if (chat.unread_count > 0) {
+      setTotalUnread(prev => Math.max(0, prev - 1));
+    }
     
     // Mark as read in backend
     const token = localStorage.getItem('token');
@@ -469,11 +476,18 @@ const Inbox = () => {
       <div className="w-[350px] border-r border-white/5 flex flex-col bg-[#0A0A0A]">
         {/* Header */}
         <div className="h-16 px-4 flex items-center justify-between border-b border-white/5">
-          <div className="flex items-center">
+          <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold tracking-tight" style={{ fontFamily: 'Cabinet Grotesk' }}>Inbox</h1>
-            <span className="ml-2 px-2 py-0.5 text-xs font-medium bg-[#00E599]/10 text-[#00E599] rounded-full">
-              {totalChats || chats.length}
-            </span>
+            <div className="flex items-center gap-1">
+              {totalUnread > 0 && (
+                <span className="px-2 py-0.5 text-[11px] font-medium bg-[#00E599]/10 text-[#00E599] rounded-full whitespace-nowrap">
+                  {totalUnread} Unread
+                </span>
+              )}
+              <span className="px-2 py-0.5 text-[11px] font-medium bg-white/5 text-zinc-400 rounded-full whitespace-nowrap">
+                {totalChats || chats.length} Total
+              </span>
+            </div>
           </div>
           <div
             className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs ${
