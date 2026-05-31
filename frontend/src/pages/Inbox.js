@@ -3,7 +3,7 @@ import { useAuth, useToast } from '../contexts/AppContext';
 import { 
   MessageSquare, Send, Bot, User, UserCog, Search, 
   Phone, Clock, MoreVertical, Sparkles, Loader2, Wifi, WifiOff,
-  Pencil, Check, X, UserCheck, Paperclip, FileText, Download, ZoomIn, Volume2, Mic, Square, Trash2
+  Pencil, Check, X, UserCheck, Paperclip, FileText, Download, ZoomIn, Volume2, Mic, Square, Trash2, Mail
 } from 'lucide-react';
 import { Switch } from '../components/ui/switch';
 
@@ -392,6 +392,32 @@ const Inbox = () => {
     }
   };
 
+  const handleMarkUnread = async () => {
+    if (!selectedChat) return;
+    
+    // Update locally
+    setChats(prev => prev.map(c => c.id === selectedChat.id ? { ...c, unread_count: 1 } : c));
+    setTotalUnread(prev => prev + 1);
+    
+    // Store phone before clearing
+    const phone = selectedChat.contact.phone_number;
+    
+    // Deselect chat so it shows as unread in the list
+    setSelectedChat(null);
+    setMessages([]);
+    
+    // Update backend
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`${BACKEND_URL}/api/chats/${phone}/mark-unread`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      success('Chat marked as unread');
+    } catch (err) {
+      error('Failed to mark chat as unread');
+    }
+  };
+
   const handleStartEditName = () => {
     const currentName = selectedChat?.contact?.name;
     const phone = selectedChat?.contact?.phone_number;
@@ -689,8 +715,12 @@ const Inbox = () => {
                     disabled={isTogglingAI}
                   />
                 </div>
-                <button className="p-2 hover:bg-white/5 rounded-lg transition-colors">
-                  <MoreVertical className="w-5 h-5 text-zinc-400" />
+                <button 
+                  onClick={handleMarkUnread}
+                  title="Mark as unread"
+                  className="p-2 hover:bg-white/5 rounded-lg transition-colors text-zinc-400 hover:text-white"
+                >
+                  <Mail className="w-5 h-5" />
                 </button>
               </div>
             </div>

@@ -819,6 +819,8 @@ async def handle_webhook(request: Request):
                         elif msg_type == "location":
                             loc = message.get("location", {})
                             text = f"[موقع 📍 {loc.get('name', '')}]"
+                        elif msg_type == "sticker":
+                            text = "[ستيكر 🎭]"
                         else:
                             text = f"[{msg_type}]" if msg_type else ""
 
@@ -1003,13 +1005,13 @@ async def log_outbound_message(
         # Smart update contact name to order numbers separated by " - "
         old_name = contact['name']
         new_name = old_name
-        order_name = request.shopify_order_number.strip().lstrip('#') if request.shopify_order_number else None
+        order_name_for_contact = request.shopify_order_number.strip().lstrip('#') if request.shopify_order_number else None
         
-        if order_name:
+        if order_name_for_contact:
             if not old_name or old_name == phone:
-                new_name = order_name
-            elif order_name not in old_name.split(" - "):
-                new_name = old_name + " - " + order_name
+                new_name = order_name_for_contact
+            elif order_name_for_contact not in old_name.split(" - "):
+                new_name = old_name + " - " + order_name_for_contact
         elif request.contact_name and old_name == phone:
             new_name = display_name
             
@@ -1111,9 +1113,36 @@ async def get_chat_messages(phone: str, current_user: Dict = Depends(get_current
             return []
         msgs = await conn.fetch("SELECT * FROM messages WHERE session_id=$1 ORDER BY created_at ASC LIMIT 1000", session['id'])
         return [MessageResponse(id=str(m['id']),session_id=str(m['session_id']),direction=m['direction'],
-                                sender_type=m['sender_type'],text=m['text'],meta_message_id=m['meta_message_id'],
                                 status=m['status'],created_at=str(m['created_at']),
                                 media_url=m.get('media_url'), media_type=m.get('media_type')) for m in msgs]
+
+@api_router.post("/chats/{phone}/mark-read")
+async def mark_chat_read(phone: str, current_user: Dict = Depends(get_current_user)):
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """UPDATE sessions SET unread_count=0 
+               FROM contacts 
+               WHERE sessions.contact_id=contacts.id 
+                 AND contacts.phone_number=$1 
+                 AND contacts.user_id=$2""",
+            phone, current_user['id']
+        )
+    return {"status": "ok"}
+
+@api_router.post("/chats/{phone}/mark-unread")
+async def mark_chat_unread(phone: str, current_user: Dict = Depends(get_current_user)):
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """UPDATE sessions SET unread_count=1 
+               FROM contacts 
+               WHERE sessions.contact_id=contacts.id 
+                 AND contacts.phone_number=$1 
+                 AND contacts.user_id=$2""",
+            phone, current_user['id']
+        )
+    return {"status": "ok"}
 
 @api_router.post("/chats/{phone}/send-media", response_model=MessageResponse)
 async def send_media(phone: str, file: UploadFile = File(...), current_user: Dict = Depends(get_current_user)):
@@ -1519,7 +1548,7 @@ async def bulk_order_confirmations(
                     user_id, phone, contact_name, metadata_json
                 )
                 
-                # Smart update contact name to order numbers separated by " - "
+                # Smart update contact name to order numbers only (not customer name)
                 old_name = contact['name']
                 new_name = old_name
                 
