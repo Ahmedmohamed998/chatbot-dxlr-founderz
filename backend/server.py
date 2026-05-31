@@ -1072,16 +1072,18 @@ async def get_chats(
     async with pool.acquire() as conn:
         if search:
             search_val = f"%{search}%"
-            where_clause = "c.user_id=$1 AND (c.phone_number ILIKE $4 OR c.name ILIKE $4)"
+            where_clause_total = "c.user_id=$1 AND (c.phone_number ILIKE $2 OR c.name ILIKE $2)"
+            where_clause_records = "c.user_id=$1 AND (c.phone_number ILIKE $4 OR c.name ILIKE $4)"
             params_total = [current_user['id'], search_val]
             params_records = [current_user['id'], limit, offset, search_val]
         else:
-            where_clause = "c.user_id=$1"
+            where_clause_total = "c.user_id=$1"
+            where_clause_records = "c.user_id=$1"
             params_total = [current_user['id']]
             params_records = [current_user['id'], limit, offset]
 
         total = await conn.fetchval(
-            f"SELECT COUNT(*) FROM sessions s JOIN contacts c ON s.contact_id=c.id WHERE {where_clause}",
+            f"SELECT COUNT(*) FROM sessions s JOIN contacts c ON s.contact_id=c.id WHERE {where_clause_total}",
             *params_total
         )
         total_unread = await conn.fetchval(
@@ -1091,7 +1093,7 @@ async def get_chats(
         records = await conn.fetch(
             f"""SELECT s.*,c.phone_number,c.name as contact_name,c.created_at as contact_created_at
                FROM sessions s JOIN contacts c ON s.contact_id=c.id
-               WHERE {where_clause} ORDER BY s.updated_at DESC LIMIT $2 OFFSET $3""",
+               WHERE {where_clause_records} ORDER BY s.updated_at DESC LIMIT $2 OFFSET $3""",
             *params_records
         )
         result = []
