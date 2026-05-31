@@ -100,11 +100,12 @@ const Inbox = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const fetchChats = useCallback(async (page = 1, append = false) => {
+  const fetchChats = useCallback(async (page = 1, append = false, searchStr = '') => {
     if (page === 1) setIsLoadingChats(true);
     else setIsLoadingMore(true);
     try {
-      const response = await api.get(`/chats?page=${page}&limit=50`);
+      const url = `/chats?page=${page}&limit=50${searchStr ? `&search=${encodeURIComponent(searchStr)}` : ''}`;
+      const response = await api.get(url);
       const { chats: newChats, has_more, total, total_unread } = response.data;
       setChats(prev => append ? [...prev, ...newChats] : newChats);
       setHasMore(has_more);
@@ -121,9 +122,17 @@ const Inbox = () => {
 
   const fetchMoreChats = useCallback(() => {
     if (!isLoadingMore && hasMore) {
-      fetchChats(currentPage + 1, true);
+      fetchChats(currentPage + 1, true, searchQuery);
     }
-  }, [fetchChats, currentPage, hasMore, isLoadingMore]);
+  }, [fetchChats, currentPage, hasMore, isLoadingMore, searchQuery]);
+
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchChats(1, false, searchQuery);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchQuery, fetchChats]);
 
   // Intersection Observer for infinite scroll
   useEffect(() => {
@@ -150,7 +159,7 @@ const Inbox = () => {
     }
   }, [api, error]);
 
-  useEffect(() => { fetchChats(); }, [fetchChats]);
+  // Search fetches automatically via useEffect
   
   // WebSocket connection
   useEffect(() => {
@@ -449,14 +458,7 @@ const Inbox = () => {
     setNameInput('');
   };
 
-  const filteredChats = chats.filter((chat) => {
-    const q = searchQuery.toLowerCase();
-    return (
-      chat.contact?.phone_number?.toLowerCase().includes(q) ||
-      chat.contact?.name?.toLowerCase().includes(q) ||
-      chat.last_message?.text?.toLowerCase().includes(q)
-    );
-  });
+  const filteredChats = chats;
 
   const formatTime = (dateString) => {
     const date = new Date(dateString);

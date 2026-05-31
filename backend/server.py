@@ -1065,23 +1065,34 @@ async def get_chats(
     current_user: Dict = Depends(get_current_user),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
+    search: str = Query(None)
 ):
     pool = await get_db_pool()
     offset = (page - 1) * limit
     async with pool.acquire() as conn:
+        if search:
+            search_val = f"%{search}%"
+            where_clause = "c.user_id=$1 AND (c.phone_number ILIKE $4 OR c.name ILIKE $4)"
+            params_total = [current_user['id'], search_val]
+            params_records = [current_user['id'], limit, offset, search_val]
+        else:
+            where_clause = "c.user_id=$1"
+            params_total = [current_user['id']]
+            params_records = [current_user['id'], limit, offset]
+
         total = await conn.fetchval(
-            "SELECT COUNT(*) FROM sessions s JOIN contacts c ON s.contact_id=c.id WHERE c.user_id=$1",
-            current_user['id']
+            f"SELECT COUNT(*) FROM sessions s JOIN contacts c ON s.contact_id=c.id WHERE {where_clause}",
+            *params_total
         )
         total_unread = await conn.fetchval(
             "SELECT COUNT(*) FROM sessions s JOIN contacts c ON s.contact_id=c.id WHERE c.user_id=$1 AND s.unread_count > 0",
             current_user['id']
         )
         records = await conn.fetch(
-            """SELECT s.*,c.phone_number,c.name as contact_name,c.created_at as contact_created_at
+            f"""SELECT s.*,c.phone_number,c.name as contact_name,c.created_at as contact_created_at
                FROM sessions s JOIN contacts c ON s.contact_id=c.id
-               WHERE c.user_id=$1 ORDER BY s.updated_at DESC LIMIT $2 OFFSET $3""",
-            current_user['id'], limit, offset
+               WHERE {where_clause} ORDER BY s.updated_at DESC LIMIT $2 OFFSET $3""",
+            *params_records
         )
         result = []
         for r in records:
