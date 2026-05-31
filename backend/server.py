@@ -992,6 +992,9 @@ async def log_outbound_message(
         # Create contact if it doesn't exist yet
         display_name = request.contact_name.strip() if request.contact_name else phone
         metadata_json = json.dumps({"shopify_order_id": shopify_order_id}) if shopify_order_id else "{}"
+        order_name_for_contact = request.shopify_order_number.strip().lstrip('#') if request.shopify_order_number else None
+        
+        initial_name = order_name_for_contact if order_name_for_contact else display_name
         
         contact = await conn.fetchrow(
             """INSERT INTO contacts (user_id, phone_number, name, metadata)
@@ -1000,17 +1003,18 @@ async def log_outbound_message(
                  SET updated_at = CURRENT_TIMESTAMP,
                      metadata = COALESCE(contacts.metadata, '{}'::jsonb) || $4::jsonb
                RETURNING id, phone_number, name""",
-            user_id, phone, display_name, metadata_json
+            user_id, phone, initial_name, metadata_json
         )
         
-        # Smart update contact name to order numbers separated by " - "
+        # Smart update contact name to order numbers only
         old_name = contact['name']
         new_name = old_name
-        order_name_for_contact = request.shopify_order_number.strip().lstrip('#') if request.shopify_order_number else None
         
+        import re
         if order_name_for_contact:
-            if not old_name or old_name == phone or not all(c.isdigit() or c == '-' or c == ' ' for c in old_name):
-                # Replace completely if it's the phone number, or if it contains text (like customer name)
+            # If the old name contains letters (it's a customer name), or is the phone number, overwrite it completely.
+            # We only append if the old name is strictly order numbers (digits, spaces, hyphens).
+            if not old_name or old_name == phone or not bool(re.match(r'^[\d\s\-]+$', old_name)):
                 new_name = order_name_for_contact
             elif order_name_for_contact not in old_name.split(" - "):
                 new_name = old_name + " - " + order_name_for_contact
@@ -1543,6 +1547,7 @@ async def bulk_order_confirmations(
             # 4. Log to inbox (same as campaigns flow)
             async with pool.acquire() as conn:
                 metadata_json = json.dumps({"shopify_order_id": order["id"]})
+                
                 contact = await conn.fetchrow(
                     """INSERT INTO contacts (user_id, phone_number, name, metadata)
                        VALUES ($1, $2, $3, $4::jsonb)
@@ -1550,14 +1555,15 @@ async def bulk_order_confirmations(
                            updated_at=CURRENT_TIMESTAMP, 
                            metadata = COALESCE(contacts.metadata, '{}'::jsonb) || $4::jsonb
                        RETURNING id, phone_number, name""",
-                    user_id, phone, contact_name, metadata_json
+                    user_id, phone, order_name, metadata_json
                 )
                 
                 # Smart update contact name to order numbers only (not customer name)
                 old_name = contact['name']
                 new_name = old_name
                 
-                if not old_name or old_name == phone or not all(c.isdigit() or c == '-' or c == ' ' for c in old_name):
+                import re
+                if not old_name or old_name == phone or not bool(re.match(r'^[\d\s\-]+$', old_name)):
                     new_name = order_name
                 elif order_name not in old_name.split(" - "):
                     new_name = old_name + " - " + order_name
