@@ -1022,6 +1022,11 @@ async def log_outbound_message(
                 "INSERT INTO sessions (contact_id, is_bot_paused) VALUES ($1, $2) RETURNING *",
                 contact['id'], request.pause_ai
             )
+        else:
+            session = await conn.fetchrow(
+                "UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING *",
+                session['id']
+            )
         # Log the outbound message as ADMIN (externally sent)
         msg_id = await conn.fetchval(
             """INSERT INTO messages (session_id, direction, sender_type, text, meta_message_id, status)
@@ -1526,6 +1531,11 @@ async def bulk_order_confirmations(
                     session = await conn.fetchrow(
                         "INSERT INTO sessions (contact_id, is_bot_paused) VALUES ($1, TRUE) RETURNING *",
                         contact['id']
+                    )
+                else:
+                    session = await conn.fetchrow(
+                        "UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING *",
+                        session['id']
                     )
                 msg_id = await conn.fetchval(
                     """INSERT INTO messages (session_id, direction, sender_type, text, meta_message_id, status)
