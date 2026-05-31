@@ -197,10 +197,7 @@ const Inbox = () => {
 
             // If message is for open chat, mark as read in backend
             if (isCurrentChat) {
-              const token = localStorage.getItem('token');
-              axios.post(`${BACKEND_URL}/api/chats/${msgData.phone_number}/mark-read`, {}, {
-                headers: { Authorization: `Bearer ${token}` }
-              }).catch(() => {});
+              api.post(`/chats/${msgData.phone_number}/mark-read`).catch(() => {});
             }
 
             // Append message to open chat
@@ -257,10 +254,7 @@ const Inbox = () => {
     }
     
     // Mark as read in backend
-    const token = localStorage.getItem('token');
-    axios.post(`${BACKEND_URL}/api/chats/${chat.contact.phone_number}/mark-read`, {}, {
-      headers: { Authorization: `Bearer ${token}` }
-    }).catch(err => console.error('Failed to mark read', err));
+    api.post(`/chats/${chat.contact.phone_number}/mark-read`).catch(err => console.error('Failed to mark read', err));
     
     inputRef.current?.focus();
   };
