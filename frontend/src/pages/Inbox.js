@@ -755,19 +755,17 @@ const Inbox = () => {
                         
                         {/* Media Rendering */}
                         {message.media_url && (
-                          <div className="mb-2 mt-1">
-                            {message.media_type === 'image' && (
-                              <div
-                                className="relative group cursor-zoom-in rounded-xl overflow-hidden border border-white/10 bg-black/30"
-                                onClick={() => setLightboxImage(`${BACKEND_URL}${message.media_url}`)}
-                              >
-                                <img
-                                  src={`${BACKEND_URL}${message.media_url}`}
-                                  alt="Attached"
-                                  className="max-w-full h-auto max-h-64 object-cover w-full block"
+                          <div className="mb-2 max-w-[280px]">
+                            {(message.media_type === 'image' || message.media_type === 'sticker') && (
+                              <div className="relative group/media overflow-hidden rounded-lg mt-1 border border-white/10 bg-black/30">
+                                <img 
+                                  src={`${BACKEND_URL}${message.media_url}`} 
+                                  alt={message.media_type} 
+                                  className={`max-w-full h-auto max-h-64 object-contain cursor-zoom-in block w-full hover:opacity-90 transition-opacity ${message.media_type === 'sticker' ? 'bg-transparent' : 'bg-black/20'}`}
+                                  onClick={() => setLightboxImage(`${BACKEND_URL}${message.media_url}`)}
                                 />
-                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center">
-                                  <ZoomIn className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
+                                <div className="absolute inset-0 bg-black/0 group-hover/media:bg-black/30 opacity-0 group-hover/media:opacity-100 flex items-center justify-center transition-all pointer-events-none">
+                                  <ZoomIn className="w-8 h-8 text-white drop-shadow-lg" />
                                 </div>
                               </div>
                             )}

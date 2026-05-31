@@ -535,6 +535,7 @@ async def download_meta_media(media_id: str, access_token: str, media_type: str)
             elif "mp4" in mime_type: ext = ".mp4"
             elif "ogg" in mime_type: ext = ".ogg"
             elif "pdf" in mime_type: ext = ".pdf"
+            elif "webp" in mime_type: ext = ".webp"
             
             filename = f"{media_type}_{media_id}{ext}"
             filepath = MEDIA_DIR / filename
@@ -807,8 +808,9 @@ async def handle_webhook(request: Request):
                         elif msg_type == "button":
                             # Quick reply button
                             text = f"[رد: {message.get('button', {}).get('text', '')}]"
-                        elif msg_type in ["image", "audio", "video", "document"]:
+                        elif msg_type in ["image", "audio", "video", "document", "sticker"]:
                             media_id = message.get(msg_type, {}).get("id")
+                            # for stickers, the media id might be in the object differently depending on payload, but standard is message.sticker.id
                             if media_id:
                                 media_type = msg_type
                                 media_url = await download_meta_media(media_id, tenant['meta_access_token'], msg_type)
@@ -816,11 +818,10 @@ async def handle_webhook(request: Request):
                             elif msg_type == "audio": text = "[صوت 🎵]"
                             elif msg_type == "video": text = "[فيديو 🎬]"
                             elif msg_type == "document": text = "[ملف 📄]"
+                            elif msg_type == "sticker": text = "[ستيكر 🎭]"
                         elif msg_type == "location":
                             loc = message.get("location", {})
                             text = f"[موقع 📍 {loc.get('name', '')}]"
-                        elif msg_type == "sticker":
-                            text = "[ستيكر 🎭]"
                         else:
                             text = f"[{msg_type}]" if msg_type else ""
 
