@@ -205,13 +205,7 @@ const Inbox = () => {
                 if (isBecomingUnread) setTotalUnread(prevTotal => prevTotal + 1);
               }
               
-              if (msgData.direction === 'OUTBOUND') {
-                const newChats = [...prev];
-                newChats[idx] = updated;
-                return newChats;
-              } else {
-                return [updated, ...prev.filter((_, i) => i !== idx)];
-              }
+              return [updated, ...prev.filter((_, i) => i !== idx)];
             });
 
             // If message is for open chat, mark as read in backend
@@ -553,7 +547,7 @@ const Inbox = () => {
         </div>
 
         {/* Chat List */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto" style={{ overflowAnchor: 'none' }}>
           {isLoadingChats ? (
             <ChatSkeleton />
           ) : filteredChats.length === 0 ? (
