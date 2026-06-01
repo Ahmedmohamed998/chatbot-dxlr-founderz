@@ -97,8 +97,18 @@ const Inbox = () => {
   const fileInputRef = useRef(null);
   const wsRef = useRef(null);
   const selectedChatRef = useRef(null);
+  const scrollPosRef = useRef(0);
+  const [shouldRestoreScroll, setShouldRestoreScroll] = useState(false);
   
   useEffect(() => { selectedChatRef.current = selectedChat; }, [selectedChat]);
+
+  // Restore scroll position when chats array changes (due to WS update)
+  React.useLayoutEffect(() => {
+    if (shouldRestoreScroll && chatListRef.current) {
+      chatListRef.current.scrollTop = scrollPosRef.current;
+      setShouldRestoreScroll(false);
+    }
+  }, [chats, shouldRestoreScroll]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -179,6 +189,9 @@ const Inbox = () => {
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'new_message') {
+            // Signal that the upcoming chats update should preserve the scroll position
+            setShouldRestoreScroll(true);
+            
             const msgData = data.data;
             const currentChat = selectedChatRef.current;
             const isCurrentChat = currentChat && currentChat.contact?.phone_number === msgData.phone_number;
@@ -547,7 +560,12 @@ const Inbox = () => {
         </div>
 
         {/* Chat List */}
-        <div className="flex-1 overflow-y-auto" style={{ overflowAnchor: 'none' }}>
+        <div 
+          ref={chatListRef}
+          onScroll={(e) => { scrollPosRef.current = e.target.scrollTop; }}
+          className="flex-1 overflow-y-auto" 
+          style={{ overflowAnchor: 'none' }}
+        >
           {isLoadingChats ? (
             <ChatSkeleton />
           ) : filteredChats.length === 0 ? (
