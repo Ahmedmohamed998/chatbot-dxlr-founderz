@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { NavLink, Outlet, useNavigate, Navigate } from 'react-router-dom';
 import { useAuth, useToast } from '../contexts/AppContext';
-import { Bot, MessageSquare, LayoutGrid, Megaphone, LogOut, Sparkles, BookOpen, Users, Settings, Power, ShoppingBag } from 'lucide-react';
+import { Bot, MessageSquare, LayoutGrid, Megaphone, LogOut, Sparkles, BookOpen, Users, Settings, Power, ShoppingBag, Menu, X } from 'lucide-react';
 
 const DashboardLayout = () => {
   const { user, logout, api, loading } = useAuth();
@@ -9,6 +9,7 @@ const DashboardLayout = () => {
   const navigate = useNavigate();
   const [aiActive, setAiActive] = useState(true);
   const [aiTogglingGlobal, setAiTogglingGlobal] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const fetchAiStatus = useCallback(async () => {
     try {
@@ -71,15 +72,51 @@ const DashboardLayout = () => {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A]" data-testid="dashboard-layout">
-      <aside className="fixed left-0 top-0 h-screen w-[260px] bg-[#050505] border-r border-white/5 flex flex-col">
-        {/* Logo */}
-        <div className="h-16 flex items-center gap-3 px-6 border-b border-white/5">
-          <div className="w-9 h-9 rounded-lg bg-[#00E599] flex items-center justify-center">
-            <Bot className="w-5 h-5 text-black" />
+      
+      {/* Mobile Top Bar */}
+      <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-[#050505] border-b border-white/5 flex items-center justify-between px-4 z-40">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-[#00E599] flex items-center justify-center">
+            <Bot className="w-4 h-4 text-black" />
           </div>
-          <span className="text-xl font-bold tracking-tight" style={{ fontFamily: 'Cabinet Grotesk' }}>
+          <span className="text-lg font-bold tracking-tight" style={{ fontFamily: 'Cabinet Grotesk' }}>
             WhatsBot
           </span>
+        </div>
+        <button
+          onClick={() => setIsMobileMenuOpen(true)}
+          className="p-2 text-zinc-400 hover:text-white rounded-lg hover:bg-white/5"
+        >
+          <Menu className="w-6 h-6" />
+        </button>
+      </div>
+
+      {/* Backdrop */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 z-40 md:hidden backdrop-blur-sm"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside className={`fixed left-0 top-0 h-screen w-[260px] bg-[#050505] border-r border-white/5 flex flex-col z-50 transform transition-transform duration-300 ease-in-out md:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        {/* Logo */}
+        <div className="h-16 flex items-center justify-between px-6 border-b border-white/5">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-[#00E599] flex items-center justify-center">
+              <Bot className="w-5 h-5 text-black" />
+            </div>
+            <span className="text-xl font-bold tracking-tight" style={{ fontFamily: 'Cabinet Grotesk' }}>
+              WhatsBot
+            </span>
+          </div>
+          <button 
+            className="md:hidden p-2 text-zinc-400 hover:text-white rounded-lg hover:bg-white/5"
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Navigation */}
@@ -90,6 +127,7 @@ const DashboardLayout = () => {
               <li key={path}>
                 <NavLink
                   to={path}
+                  onClick={() => setIsMobileMenuOpen(false)}
                   data-testid={`nav-${label.toLowerCase().replace(' ', '-')}`}
                   className={({ isActive }) =>
                     `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
@@ -199,7 +237,8 @@ const DashboardLayout = () => {
 
       </aside>
 
-      <main className="ml-[260px] min-h-screen">
+      {/* Main Content */}
+      <main className="md:ml-[260px] min-h-screen pt-16 md:pt-0 flex flex-col h-screen max-h-screen overflow-hidden">
         <Outlet />
       </main>
     </div>

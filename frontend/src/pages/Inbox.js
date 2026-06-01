@@ -3,7 +3,7 @@ import { useAuth, useToast } from '../contexts/AppContext';
 import { 
   MessageSquare, Send, Bot, User, UserCog, Search, 
   Phone, Clock, MoreVertical, Sparkles, Loader2, Wifi, WifiOff,
-  Pencil, Check, X, UserCheck, Paperclip, FileText, Download, ZoomIn, Volume2, Mic, Square, Trash2, Mail
+  Pencil, Check, X, UserCheck, Paperclip, FileText, Download, ZoomIn, Volume2, Mic, Square, Trash2, Mail, ArrowLeft
 } from 'lucide-react';
 import { Switch } from '../components/ui/switch';
 
@@ -502,9 +502,9 @@ const Inbox = () => {
 
   return (
     <>
-      <div className="h-screen flex" data-testid="inbox-page">
+      <div className="h-full flex" data-testid="inbox-page">
         {/* Chat List Panel */}
-      <div className="w-[350px] border-r border-white/5 flex flex-col bg-[#0A0A0A]">
+      <div className={`w-full md:w-[350px] flex-shrink-0 border-r border-white/5 flex flex-col bg-[#0A0A0A] ${selectedChat ? 'hidden md:flex' : 'flex'}`}>
         {/* Header */}
         <div className="h-16 px-4 flex items-center justify-between border-b border-white/5">
           <div className="flex items-center gap-3">
@@ -637,12 +637,18 @@ const Inbox = () => {
       </div>
 
       {/* Message Panel */}
-      <div className="flex-1 flex flex-col bg-[#0A0A0A]">
+      <div className={`flex-1 flex flex-col bg-[#0A0A0A] h-full ${!selectedChat ? 'hidden md:flex' : 'flex'}`}>
         {selectedChat ? (
           <>
             {/* Chat Header */}
-            <div className="h-16 px-6 flex items-center justify-between border-b border-white/5 bg-black/60 backdrop-blur-xl sticky top-0 z-10">
+            <div className="h-16 px-4 md:px-6 flex items-center justify-between border-b border-white/5 bg-black/60 backdrop-blur-xl sticky top-0 z-10">
               <div className="flex items-center gap-3 min-w-0 flex-1">
+                <button 
+                  className="md:hidden p-2 -ml-2 text-zinc-400 hover:text-white rounded-lg hover:bg-white/5"
+                  onClick={() => setSelectedChat(null)}
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
                 <ContactAvatar name={selectedChat.contact?.name} phone={selectedChat.contact?.phone_number} />
                 <div className="min-w-0 flex-1">
                   {isEditingName ? (
