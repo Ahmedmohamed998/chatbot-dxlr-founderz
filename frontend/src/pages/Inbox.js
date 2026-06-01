@@ -80,6 +80,10 @@ const Inbox = () => {
   // Unread tracking (session ids that have unread messages)
   const [unreadSessions, setUnreadSessions] = useState(new Set());
   const [lightboxImage, setLightboxImage] = useState(null);
+  
+  // Media Preview State
+  const [previewFile, setPreviewFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
 
   // Audio Recording State
   const [isRecording, setIsRecording] = useState(false);
@@ -201,7 +205,13 @@ const Inbox = () => {
                 if (isBecomingUnread) setTotalUnread(prevTotal => prevTotal + 1);
               }
               
-              return [updated, ...prev.filter((_, i) => i !== idx)];
+              if (msgData.direction === 'OUTBOUND') {
+                const newChats = [...prev];
+                newChats[idx] = updated;
+                return newChats;
+              } else {
+                return [updated, ...prev.filter((_, i) => i !== idx)];
+              }
             });
 
             // If message is for open chat, mark as read in backend
@@ -296,7 +306,15 @@ const Inbox = () => {
 
   const handleSendMedia = async (e) => {
     const file = e.target.files?.[0];
-    if (file) uploadFile(file);
+    if (file) {
+      if (file.size > 16 * 1024 * 1024) {
+        error('File is too large (max 16MB)');
+        return;
+      }
+      setPreviewFile(file);
+      setPreviewUrl(URL.createObjectURL(file));
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   // Voice Recording Functions
@@ -850,7 +868,7 @@ const Inbox = () => {
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={isSending}
-                    className="p-3 text-zinc-400 hover:text-[#00E599] hover:bg-[#00E599]/10 rounded-xl transition-all disabled:opacity-50"
+                    className="p-3 text-zinc-400 hover:text-[#00E599] hover:bg-[#00E599]/10 rounded-xl transition-all disabled:opacity-50 flex-shrink-0"
                     title="Attach file"
                   >
                     <Paperclip className="w-5 h-5" />
@@ -885,7 +903,7 @@ const Inbox = () => {
                       <Mic className="w-5 h-5" />
                     </button>
                   )}
-                </form>
+                </div>
               )}
             </div>
           </>
@@ -904,6 +922,56 @@ const Inbox = () => {
         )}
       </div>
     </div>
+
+    {/* Media Preview Modal */}
+    {previewFile && (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4">
+        <div className="bg-[#111] border border-white/10 rounded-2xl w-full max-w-md overflow-hidden flex flex-col shadow-2xl">
+          <div className="flex justify-between items-center p-4 border-b border-white/10">
+            <h3 className="font-medium text-white">Send Media</h3>
+            <button onClick={() => { setPreviewFile(null); setPreviewUrl(null); }} className="text-zinc-400 hover:text-white p-1 rounded-full hover:bg-white/10 transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="p-4 flex flex-col items-center justify-center min-h-[200px] bg-black/20">
+            {previewFile.type.startsWith('image/') ? (
+              <img src={previewUrl} alt="Preview" className="max-w-full max-h-[300px] object-contain rounded-lg border border-white/5" />
+            ) : previewFile.type.startsWith('video/') ? (
+              <video src={previewUrl} controls className="max-w-full max-h-[300px] rounded-lg border border-white/5" />
+            ) : previewFile.type.startsWith('audio/') ? (
+              <audio src={previewUrl} controls className="w-full" />
+            ) : (
+              <div className="flex flex-col items-center gap-3 text-zinc-400">
+                <FileText className="w-16 h-16 text-[#00E599]/80" />
+                <p className="font-medium text-center break-all">{previewFile.name}</p>
+                <p className="text-xs opacity-70">{(previewFile.size / 1024 / 1024).toFixed(2)} MB</p>
+              </div>
+            )}
+          </div>
+          <div className="p-4 border-t border-white/10 flex justify-end gap-3">
+            <button 
+              onClick={() => { setPreviewFile(null); setPreviewUrl(null); }}
+              className="px-4 py-2 text-sm font-medium text-white hover:bg-white/5 rounded-lg transition-colors"
+              disabled={isSending}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={async () => {
+                await uploadFile(previewFile);
+                setPreviewFile(null);
+                setPreviewUrl(null);
+              }}
+              disabled={isSending}
+              className="flex items-center gap-2 px-6 py-2 bg-[#00E599] text-black font-semibold rounded-lg hover:bg-[#00c986] transition-colors disabled:opacity-50"
+            >
+              {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              {isSending ? 'Sending...' : 'Send'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* Lightbox */}
     {lightboxImage && (
