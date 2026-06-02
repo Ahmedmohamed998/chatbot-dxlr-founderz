@@ -99,6 +99,7 @@ const Inbox = () => {
   const selectedChatRef = useRef(null);
   const scrollPosRef = useRef(0);
   const [shouldRestoreScroll, setShouldRestoreScroll] = useState(false);
+  const [showUnreadOnly, setShowUnreadOnly] = useState(false);
   
   useEffect(() => { selectedChatRef.current = selectedChat; }, [selectedChat]);
 
@@ -114,11 +115,14 @@ const Inbox = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const fetchChats = useCallback(async (page = 1, append = false, searchStr = '') => {
+  const fetchChats = useCallback(async (page = 1, append = false, searchStr = '', unreadOnly = false) => {
     if (page === 1) setIsLoadingChats(true);
     else setIsLoadingMore(true);
     try {
-      const url = `/chats?page=${page}&limit=50${searchStr ? `&search=${encodeURIComponent(searchStr)}` : ''}`;
+      let url = `/chats?page=${page}&limit=50`;
+      if (searchStr) url += `&search=${encodeURIComponent(searchStr)}`;
+      if (unreadOnly) url += `&unread_only=true`;
+      
       const response = await api.get(url);
       const { chats: newChats, has_more, total, total_unread } = response.data;
       setChats(prev => append ? [...prev, ...newChats] : newChats);
@@ -136,17 +140,17 @@ const Inbox = () => {
 
   const fetchMoreChats = useCallback(() => {
     if (!isLoadingMore && hasMore) {
-      fetchChats(currentPage + 1, true, searchQuery);
+      fetchChats(currentPage + 1, true, searchQuery, showUnreadOnly);
     }
-  }, [fetchChats, currentPage, hasMore, isLoadingMore, searchQuery]);
+  }, [fetchChats, currentPage, hasMore, isLoadingMore, searchQuery, showUnreadOnly]);
 
-  // Debounce search
+  // Debounce search and unread toggle
   useEffect(() => {
     const timer = setTimeout(() => {
-      fetchChats(1, false, searchQuery);
+      fetchChats(1, false, searchQuery, showUnreadOnly);
     }, 500);
     return () => clearTimeout(timer);
-  }, [searchQuery, fetchChats]);
+  }, [searchQuery, showUnreadOnly, fetchChats]);
 
   // Intersection Observer for infinite scroll
   useEffect(() => {
@@ -206,9 +210,17 @@ const Inbox = () => {
                 media_url: msgData.media_url, media_type: msgData.media_type
               };
               if (idx === -1) {
-                // New contact not in list yet — do a background refresh without touching scroll
-                fetchChats(1, false);
-                return prev;
+                // Prepend a mock chat to prevent losing scroll position, instead of refetching everything!
+                const newChat = {
+                  id: msgData.session_id,
+                  contact: { phone_number: msgData.phone_number, name: msgData.phone_number },
+                  is_bot_paused: false,
+                  unread_count: isCurrentChat ? 0 : 1,
+                  last_message: newLastMsg,
+                  updated_at: msgData.created_at
+                };
+                if (!isCurrentChat) setTotalUnread(prevTotal => prevTotal + 1);
+                return [newChat, ...prev];
               }
               const updated = { ...prev[idx], last_message: newLastMsg };
               
@@ -524,9 +536,17 @@ const Inbox = () => {
             <h1 className="text-xl font-bold tracking-tight" style={{ fontFamily: 'Cabinet Grotesk' }}>Inbox</h1>
             <div className="flex items-center gap-1">
               {totalUnread > 0 && (
-                <span className="px-2 py-0.5 text-[11px] font-medium bg-[#00E599]/10 text-[#00E599] rounded-full whitespace-nowrap">
+                <button 
+                  onClick={() => setShowUnreadOnly(!showUnreadOnly)}
+                  className={`px-2 py-0.5 text-[11px] font-medium rounded-full whitespace-nowrap transition-colors cursor-pointer ${
+                    showUnreadOnly 
+                      ? 'bg-[#00E599] text-black shadow-[0_0_10px_rgba(0,229,153,0.3)]' 
+                      : 'bg-[#00E599]/10 text-[#00E599] hover:bg-[#00E599]/20'
+                  }`}
+                  title={showUnreadOnly ? "Show all chats" : "Show unread chats only"}
+                >
                   {totalUnread} Unread
-                </span>
+                </button>
               )}
               <span className="px-2 py-0.5 text-[11px] font-medium bg-white/5 text-zinc-400 rounded-full whitespace-nowrap">
                 {totalChats || chats.length} Total

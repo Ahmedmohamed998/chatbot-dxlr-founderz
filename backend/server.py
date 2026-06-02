@@ -1065,7 +1065,8 @@ async def get_chats(
     current_user: Dict = Depends(get_current_user),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
-    search: str = Query(None)
+    search: str = Query(None),
+    unread_only: bool = Query(False)
 ):
     pool = await get_db_pool()
     offset = (page - 1) * limit
@@ -1081,6 +1082,10 @@ async def get_chats(
             where_clause_records = "c.user_id=$1"
             params_total = [current_user['id']]
             params_records = [current_user['id'], limit, offset]
+
+        if unread_only:
+            where_clause_total += " AND s.unread_count > 0"
+            where_clause_records += " AND s.unread_count > 0"
 
         total = await conn.fetchval(
             f"SELECT COUNT(*) FROM sessions s JOIN contacts c ON s.contact_id=c.id WHERE {where_clause_total}",
