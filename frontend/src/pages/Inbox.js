@@ -246,7 +246,8 @@ const Inbox = () => {
                   id: msgData.id, session_id: msgData.session_id,
                   direction: msgData.direction, sender_type: msgData.sender_type,
                   text: msgData.text, status: 'sent', created_at: msgData.created_at,
-                  media_url: msgData.media_url, media_type: msgData.media_type
+                  media_url: msgData.media_url, media_type: msgData.media_type,
+                  reply_to_text: msgData.reply_to_text
                 }];
               });
             }
@@ -802,6 +803,14 @@ const Inbox = () => {
                           <span className="text-xs opacity-50">{formatTime(message.created_at)}</span>
                         </div>
                         
+                        {/* Reply Context Rendering */}
+                        {message.reply_to_text && (
+                          <div className="mb-2 pl-3 py-1 border-l-4 border-black/20 bg-black/10 rounded-r-lg">
+                            <p className="text-[11px] font-medium opacity-60 mb-0.5">Replying to:</p>
+                            <p className="text-xs opacity-90 line-clamp-2">{message.reply_to_text}</p>
+                          </div>
+                        )}
+
                         {/* Media Rendering */}
                         {message.media_url && (
                           <div className="mb-2 max-w-[280px]">

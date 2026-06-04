@@ -70,6 +70,7 @@ async def init_db():
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS shopify_api_token VARCHAR(255)")
         await conn.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_url VARCHAR(255)")
         await conn.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_type VARCHAR(50)")
+        await conn.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL")
 
         admin = await conn.fetchrow("SELECT id FROM users WHERE username = $1", 'admin')
         if not admin:
@@ -162,6 +163,7 @@ class MessageResponse(BaseModel):
     created_at: str
     media_url: Optional[str] = None
     media_type: Optional[str] = None
+    reply_to_text: Optional[str] = None
 
 class SessionResponse(BaseModel):
     id: str
@@ -827,6 +829,10 @@ async def handle_webhook(request: Request):
 
                         if not phone or (not text and not media_url):
                             continue
+
+                        context = message.get("context", {})
+                        reply_to_meta_id = context.get("id")
+
                         async with pool.acquire() as conn:
                             contact = await conn.fetchrow(
                                 """INSERT INTO contacts (user_id,phone_number,name) VALUES ($1,$2,$2)
@@ -840,14 +846,24 @@ async def handle_webhook(request: Request):
                             else:
                                 session = await conn.fetchrow(
                                     "UPDATE sessions SET updated_at=CURRENT_TIMESTAMP, unread_count=unread_count+1 WHERE id=$1 RETURNING *", session['id'])
+                            
+                            reply_to_id = None
+                            reply_to_text = None
+                            if reply_to_meta_id:
+                                r_msg = await conn.fetchrow("SELECT id, text FROM messages WHERE meta_message_id=$1 LIMIT 1", reply_to_meta_id)
+                                if r_msg:
+                                    reply_to_id = r_msg['id']
+                                    reply_to_text = r_msg['text']
+
                             msg_id = await conn.fetchval(
-                                """INSERT INTO messages (session_id,direction,sender_type,text,meta_message_id,status,media_url,media_type)
-                                   VALUES ($1,'INBOUND','CUSTOMER',$2,$3,'received',$4,$5) RETURNING id""",
-                                session['id'], text or '', meta_message_id, media_url, media_type)
+                                """INSERT INTO messages (session_id,direction,sender_type,text,meta_message_id,status,media_url,media_type,reply_to_message_id)
+                                   VALUES ($1,'INBOUND','CUSTOMER',$2,$3,'received',$4,$5,$6) RETURNING id""",
+                                session['id'], text or '', meta_message_id, media_url, media_type, reply_to_id)
                         await ws_manager.broadcast({"type":"new_message","user_id":tenant_id,
                             "data":{"id":str(msg_id),"session_id":str(session['id']),"phone_number":phone,
                                     "direction":"INBOUND","sender_type":"CUSTOMER","text":text or '',
                                     "media_url": media_url, "media_type": media_type,
+                                    "reply_to_text": reply_to_text,
                                     "created_at":datetime.now(timezone.utc).isoformat()}})
 
                         # Handle Shopify Order Tagging
@@ -1135,13 +1151,21 @@ async def get_chat_messages(phone: str, current_user: Dict = Depends(get_current
         session = await conn.fetchrow("SELECT id FROM sessions WHERE contact_id=$1", contact['id'])
         if not session:
             return []
-        msgs = await conn.fetch("SELECT * FROM messages WHERE session_id=$1 ORDER BY created_at ASC LIMIT 1000", session['id'])
+        msgs = await conn.fetch("""
+            SELECT m.*, r.text as reply_to_text 
+            FROM messages m 
+            LEFT JOIN messages r ON m.reply_to_message_id = r.id 
+            WHERE m.session_id=$1 
+            ORDER BY m.created_at ASC 
+            LIMIT 1000
+        """, session['id'])
         return [MessageResponse(id=str(m['id']),session_id=str(m['session_id']),direction=m['direction'],
                                 sender_type=m.get('sender_type') or 'CUSTOMER',
                                 text=m.get('text') or '',
                                 meta_message_id=m.get('meta_message_id') or '',
                                 status=m['status'],created_at=str(m['created_at']),
-                                media_url=m.get('media_url'), media_type=m.get('media_type')) for m in msgs]
+                                media_url=m.get('media_url'), media_type=m.get('media_type'),
+                                reply_to_text=m.get('reply_to_text')) for m in msgs]
 
 @api_router.post("/chats/{phone}/mark-read")
 async def mark_chat_read(phone: str, current_user: Dict = Depends(get_current_user)):

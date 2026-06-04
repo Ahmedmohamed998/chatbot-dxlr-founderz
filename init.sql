@@ -52,6 +52,9 @@ CREATE TABLE IF NOT EXISTS messages (
     text TEXT NOT NULL,
     meta_message_id VARCHAR(255),
     status VARCHAR(20) DEFAULT 'sent',
+    media_url VARCHAR(255),
+    media_type VARCHAR(50),
+    reply_to_message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
